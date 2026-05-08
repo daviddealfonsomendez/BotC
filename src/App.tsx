@@ -1,0 +1,1043 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Users, 
+  Trash2, 
+  Plus, 
+  Info, 
+  RotateCcw, 
+  ChevronRight, 
+  Crown, 
+  Skull, 
+  Shield, 
+  HelpCircle,
+  Eye,
+  EyeOff,
+  MoveUp,
+  MoveDown,
+  Layers,
+  LayoutGrid,
+  Search,
+  Upload,
+  FileJson,
+  X,
+  Sparkles,
+  Loader2
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Role, RoleType, EditionType, ALL_ROLES } from './data/roles';
+import { getStorytellerAdvice } from './services/ai';
+
+interface Player {
+  id: string;
+  name: string;
+  roleId?: string;
+  isDead: boolean;
+  notes: string;
+}
+
+type AppView = 'setup' | 'script' | 'play';
+
+interface CustomScript {
+  id: string;
+  name: string;
+  roleIds: string[];
+}
+
+export default function App() {
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [newName, setNewName] = useState('');
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleType | 'all'>('all');
+  const [editionFilter, setEditionFilter] = useState<EditionType | 'all' | string>('trouble_brewing');
+  const [isGrimoireVisible, setIsGrimoireVisible] = useState(true);
+  const [appView, setAppView] = useState<AppView>('setup');
+  const [isPlayerMenuOpen, setIsPlayerMenuOpen] = useState(false);
+  const [customRoles, setCustomRoles] = useState<Role[]>([]);
+  const [activeScript, setActiveScript] = useState<string[] | null>(null);
+  const [isScriptBuilderOpen, setIsScriptBuilderOpen] = useState(false);
+  const [isAddRoleModalOpen, setIsAddRoleModalOpen] = useState(false);
+  
+  const [builderTitle, setBuilderTitle] = useState('');
+  const [builderRoleIds, setBuilderRoleIds] = useState<string[]>([]);
+  const [builderSearch, setBuilderSearch] = useState('');
+  const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
+
+  const [newRole, setNewRole] = useState<{name: string, type: RoleType, ability: string}>({
+    name: '',
+    type: 'townsfolk',
+    ability: ''
+  });
+
+  const [aiTip, setAiTip] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('botc-session');
+    if (saved) {
+      try {
+        setPlayers(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to load session', e);
+      }
+    }
+
+    const savedCustom = localStorage.getItem('botc-custom-roles');
+    if (savedCustom) {
+      try {
+        setCustomRoles(JSON.parse(savedCustom));
+      } catch (e) {
+        console.error('Failed to load custom roles', e);
+      }
+    }
+    const savedCustomScripts = localStorage.getItem('botc-custom-scripts');
+    if (savedCustomScripts) {
+      try {
+        setCustomScripts(JSON.parse(savedCustomScripts));
+      } catch (e) {
+        console.error('Failed to load custom scripts', e);
+      }
+    }
+  }, []);
+
+  // Save to localStorage
+  useEffect(() => {
+    localStorage.setItem('botc-session', JSON.stringify(players));
+  }, [players]);
+
+  useEffect(() => {
+    localStorage.setItem('botc-custom-roles', JSON.stringify(customRoles));
+  }, [customRoles]);
+
+  useEffect(() => {
+    localStorage.setItem('botc-custom-scripts', JSON.stringify(customScripts));
+  }, [customScripts]);
+
+  const addPlayer = () => {
+    if (!newName.trim()) return;
+    const names = newName.split('\n').filter(n => n.trim());
+    const newPlayers: Player[] = names.map(name => ({
+      id: Math.random().toString(36).substr(2, 9),
+      name: name.trim(),
+      isDead: false,
+      notes: ''
+    }));
+    setPlayers([...players, ...newPlayers]);
+    setNewName('');
+  };
+
+  const removePlayer = (id: string) => {
+    setPlayers(players.filter(p => p.id !== id));
+    if (selectedPlayerId === id) setSelectedPlayerId(null);
+  };
+
+  const movePlayer = (index: number, direction: 'up' | 'down') => {
+    const newPlayers = [...players];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= players.length) return;
+    
+    [newPlayers[index], newPlayers[targetIndex]] = [newPlayers[targetIndex], newPlayers[index]];
+    setPlayers(newPlayers);
+  };
+
+  const assignRole = (playerId: string, roleId: string | undefined) => {
+    setPlayers(players.map(p => p.id === playerId ? { ...p, roleId } : p));
+  };
+
+  const toggleDead = (id: string) => {
+    setPlayers(players.map(p => p.id === id ? { ...p, isDead: !p.isDead } : p));
+  };
+
+  const resetGame = () => {
+    if (confirm('Are you sure you want to clear all players and assignments?')) {
+      setPlayers([]);
+      setSelectedPlayerId(null);
+    }
+  };
+
+  const updateNotes = (id: string, notes: string) => {
+    setPlayers(players.map(p => p.id === id ? { ...p, notes } : p));
+  };
+
+  const saveScript = () => {
+    if (!builderTitle || builderRoleIds.length === 0) return;
+    const newScript: CustomScript = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: builderTitle,
+      roleIds: builderRoleIds
+    };
+    setCustomScripts([...customScripts, newScript]);
+    setActiveScript(builderRoleIds);
+    setEditionFilter(newScript.id);
+    setIsScriptBuilderOpen(false);
+    setBuilderTitle('');
+    setBuilderRoleIds([]);
+  };
+
+  const toggleRoleInBuilder = (roleId: string) => {
+    setBuilderRoleIds(prev => 
+      prev.includes(roleId) ? prev.filter(id => id !== roleId) : [...prev, roleId]
+    );
+  };
+
+  const addManualRole = () => {
+    if (!newRole.name) return;
+    const roleId = newRole.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const role: Role = {
+      id: roleId,
+      name: newRole.name,
+      type: newRole.type,
+      ability: newRole.ability,
+      edition: 'custom'
+    };
+    setCustomRoles([...customRoles, role]);
+    setIsAddRoleModalOpen(false);
+    setNewRole({ name: '', type: 'townsfolk', ability: '' });
+  };
+
+  const allAvailableRoles = [...ALL_ROLES, ...customRoles];
+
+  const filteredRoles = allAvailableRoles.filter(role => {
+    const matchesSearch = role.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = roleFilter === 'all' || role.type === roleFilter;
+    
+    // Check if editionFilter is a system edition or a custom script ID
+    const isSystemEdition = ['trouble_brewing', 'bad_moon_rising', 'sects_and_violets', 'traveler', 'fabled', 'experimental', 'custom'].includes(editionFilter);
+    const matchesEdition = editionFilter === 'all' || (isSystemEdition && role.edition === editionFilter) || (!isSystemEdition && activeScript?.includes(role.id));
+    
+    const matchesScript = !activeScript || activeScript.includes(role.id);
+
+    return matchesSearch && matchesType && matchesEdition && matchesScript;
+  });
+
+  const getRoleById = (id?: string) => allAvailableRoles.find(r => r.id === id);
+
+  const handleAiAdvice = async () => {
+    setIsAiLoading(true);
+    setIsAiDrawerOpen(true);
+    const gameState = {
+      playersCount: players.length,
+      currentRoles: players.map(p => ({
+        role: getRoleById(p.roleId)?.name || 'Unknown',
+        type: getRoleById(p.roleId)?.type || 'Unknown',
+        isDead: p.isDead
+      }))
+    };
+    const advice = await getStorytellerAdvice(gameState);
+    setAiTip(advice || "The spirits are silent...");
+    setIsAiLoading(false);
+  };
+
+  const typeColors = {
+    townsfolk: 'text-blue-400 border-blue-400/30 bg-blue-400/10',
+    outsider: 'text-blue-200 border-blue-200/30 bg-blue-200/10',
+    minion: 'text-red-400 border-red-400/30 bg-red-400/10',
+    demon: 'text-red-600 border-red-600/30 bg-red-600/10',
+    traveler: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
+    fabled: 'text-amber-500 border-amber-500/30 bg-amber-500/10',
+  };
+
+  const editions = [
+    { id: 'trouble_brewing', name: 'Trouble Brewing' },
+    { id: 'bad_moon_rising', name: 'Bad Moon Rising' },
+    { id: 'sects_and_violets', name: 'Sects & Violets' },
+    ...customScripts.map(s => ({ id: s.id, name: s.name })),
+    { id: 'traveler', name: 'Travelers' },
+    { id: 'fabled', name: 'Fabled' },
+    { id: 'experimental', name: 'Experimental' },
+    { id: 'custom', name: 'Custom Roles' },
+    { id: 'all', name: 'All Roles' },
+  ];
+
+  const handleEditionFilter = (id: string) => {
+    setEditionFilter(id);
+    const script = customScripts.find(s => s.id === id);
+    if (script) {
+      setActiveScript(script.roleIds);
+    } else {
+      setActiveScript(null);
+    }
+  };
+
+  const handlePlayerClick = (id: string) => {
+    setSelectedPlayerId(id);
+    setIsPlayerMenuOpen(true);
+  };
+
+  const reorderPlayers = (fromIndex: number, toIndex: number) => {
+    const newPlayers = [...players];
+    const [removed] = newPlayers.splice(fromIndex, 1);
+    newPlayers.splice(toIndex, 0, removed);
+    setPlayers(newPlayers);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0a0502] text-[#e0d8d0] font-sans selection:bg-red-900 selection:text-white flex flex-col overflow-hidden">
+      {/* Header */}
+      <header className="border-b border-white/10 p-4 backdrop-blur-md z-50 flex justify-between items-center bg-[#0a0502]/80 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-900/40 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(153,27,27,0.4)]">
+            <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-red-100" />
+          </div>
+          <div>
+            <h1 className="text-sm sm:text-base font-bold tracking-tight leading-none">Grimoire Manager</h1>
+            <div className="text-[10px] uppercase font-black text-red-500/80 mt-1">
+              {appView === 'setup' ? 'Step 1: Players' : appView === 'script' ? 'Step 2: Script' : 'Step 3: Play'}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {appView === 'play' && (
+            <button 
+              onClick={() => setIsGrimoireVisible(!isGrimoireVisible)}
+              className="p-2 hover:bg-white/5 rounded-lg transition-colors border border-white/5"
+              title="Toggle Secrets Visibility"
+            >
+              {isGrimoireVisible ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5 opacity-50" />}
+            </button>
+          )}
+          {appView === 'play' && (
+            <button 
+              onClick={handleAiAdvice}
+              className="p-2 hover:bg-blue-900/20 rounded-lg transition-all border border-blue-500/30 text-blue-400 animate-pulse-slow"
+              title="Storyteller Assistant"
+            >
+              <Sparkles className="w-5 h-5" />
+            </button>
+          )}
+          <button 
+            onClick={resetGame}
+            className="p-2 hover:bg-red-900/20 rounded-lg transition-colors border border-red-900/20 text-red-400"
+            title="Reset All"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* VIEW 1: SETUP (PLAYERS) */}
+        <AnimatePresence mode="wait">
+          {appView === 'setup' && (
+            <motion.div 
+              key="setup"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="flex-1 flex flex-col p-4 sm:p-8 max-w-2xl mx-auto w-full overflow-y-auto"
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-white mb-2">Who is attending?</h2>
+                <p className="text-[#8e9299] text-sm">Enter the names of your players to start the circle.</p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="p-6 bg-[#1a0f0a] border border-white/5 rounded-3xl shadow-xl">
+                  <label className="text-[10px] uppercase font-black tracking-widest text-red-500 mb-3 block">Player List</label>
+                  <textarea
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Paste name list (one per line)...&#10;David&#10;Alice&#10;Bob..."
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-red-500/50 transition-all resize-none h-40 font-medium"
+                  />
+                  <button 
+                    onClick={addPlayer}
+                    className="w-full mt-4 py-4 bg-red-900/40 hover:bg-red-800/50 text-red-100 rounded-2xl transition-all border border-red-500/30 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest"
+                  >
+                    <Plus className="w-5 h-5" /> Add to Circle
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center px-2">
+                    <span className="text-[10px] uppercase font-black text-[#8e9299] tracking-widest">Added Players ({players.length})</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {players.map((player, index) => (
+                      <motion.div
+                        key={player.id}
+                        layout
+                        className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-white/20 font-mono text-xs w-4">{index + 1}</span>
+                          <span className="font-medium">{player.name}</span>
+                        </div>
+                        <button 
+                          onClick={() => removePlayer(player.id)}
+                          className="p-2 hover:bg-red-900/40 rounded-lg text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </motion.div>
+                    ))}
+                    {players.length === 0 && (
+                      <div className="py-12 border-2 border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center text-white/20 italic text-sm">
+                        No players added yet
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-12 sticky bottom-0 bg-[#0a0502] py-4">
+                <button
+                  disabled={players.length < 5}
+                  onClick={() => setAppView('script')}
+                  className="w-full py-4 bg-white text-black rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-white/5 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 flex items-center justify-center gap-3"
+                >
+                  Continue to Script <ChevronRight className="w-5 h-5" />
+                </button>
+                {players.length < 5 && players.length > 0 && (
+                   <p className="text-center text-red-500/60 text-[10px] uppercase font-black mt-3 tracking-widest">At least 5 players required for BotC</p>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* VIEW 2: SCRIPT */}
+          {appView === 'script' && (
+            <motion.div 
+              key="script"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="flex-1 flex flex-col p-4 sm:p-8 max-w-2xl mx-auto w-full overflow-y-auto"
+            >
+              <div className="mb-8 flex justify-between items-start">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">What are we playing?</h2>
+                  <p className="text-[#8e9299] text-sm">Select an official edition or build a custom script.</p>
+                </div>
+                <button 
+                  onClick={() => setAppView('setup')}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold uppercase tracking-widest"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">Select Script</label>
+                  <div className="relative group">
+                    <select
+                      value={editionFilter}
+                      onChange={(e) => handleEditionFilter(e.target.value)}
+                      className="w-full appearance-none bg-[#1a0f0a] border border-white/10 rounded-2xl p-5 text-lg font-bold focus:outline-none focus:border-blue-500/50 shadow-xl cursor-pointer"
+                    >
+                      <optgroup label="Official Scripts">
+                        <option value="trouble_brewing">Trouble Brewing</option>
+                        <option value="bad_moon_rising">Bad Moon Rising</option>
+                        <option value="sects_and_violets">Sects & Violets</option>
+                      </optgroup>
+                      {customScripts.length > 0 && (
+                        <optgroup label="My Custom Scripts">
+                          {customScripts.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Other">
+                        <option value="traveler">Travelers</option>
+                        <option value="fabled">Fabled</option>
+                        <option value="experimental">Experimental</option>
+                        <option value="custom">Custom Roles Only</option>
+                        <option value="all">Everything</option>
+                      </optgroup>
+                    </select>
+                    <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
+                      <ChevronRight className="w-6 h-6 rotate-90" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setIsScriptBuilderOpen(true)}
+                    className="p-6 bg-blue-900/20 hover:bg-blue-800/30 text-blue-100 rounded-3xl transition-all border border-blue-500/30 flex flex-col items-center gap-3 text-center group"
+                  >
+                    <div className="p-3 bg-blue-500/20 rounded-full group-hover:scale-110 transition-transform">
+                      <LayoutGrid className="w-6 h-6" />
+                    </div>
+                    <span className="text-sm font-bold uppercase tracking-wider">Build Script</span>
+                  </button>
+                  <button 
+                    onClick={() => setIsAddRoleModalOpen(true)}
+                    className="p-6 bg-red-900/20 hover:bg-red-800/30 text-red-100 rounded-3xl transition-all border border-red-500/30 flex flex-col items-center gap-3 text-center group"
+                  >
+                    <div className="p-3 bg-red-500/20 rounded-full group-hover:scale-110 transition-transform">
+                      <Plus className="w-6 h-6" />
+                    </div>
+                    <span className="text-sm font-bold uppercase tracking-wider">Custom Role</span>
+                  </button>
+                </div>
+
+                <div className="p-6 bg-white/5 border border-white/5 rounded-3xl">
+                   <h3 className="text-xs font-black uppercase tracking-widest text-[#8e9299] mb-4">Preview Character Mix</h3>
+                   <div className="grid grid-cols-2 gap-2 opacity-60">
+                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
+                        <div className="w-2 h-2 bg-blue-400 rounded-full shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Townsfolk</span>
+                      </div>
+                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
+                        <div className="w-2 h-2 bg-blue-200 rounded-full shadow-[0_0_8px_rgba(191,219,254,0.5)]" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Outsiders</span>
+                      </div>
+                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
+                        <div className="w-2 h-2 bg-red-400 rounded-full shadow-[0_0_8px_rgba(248,113,113,0.5)]" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Minions</span>
+                      </div>
+                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
+                        <div className="w-2 h-2 bg-red-600 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)]" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest">Demons</span>
+                      </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="mt-12">
+                <button
+                  onClick={() => setAppView('play')}
+                  className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-red-950/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+                >
+                  Enter the Grimoire <Layers className="w-5 h-5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* VIEW 3: PLAY (GRIMOIRE) */}
+          {appView === 'play' && (
+            <motion.div 
+              key="play"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 relative flex flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_50%,#1a1008_0%,#0a0502_100%)]"
+            >
+              <div className="absolute inset-0 opacity-5 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
+              
+              <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
+                <div className="relative aspect-square w-full max-w-[min(85vh,90vw)]">
+                  {/* Circular Table Track */}
+                  <div className="absolute inset-0 border border-white/5 rounded-full flex items-center justify-center">
+                    <div className="w-[95%] h-[95%] border border-[#3d2b1f] rounded-full border-dashed opacity-30" />
+                  </div>
+
+                  {players.map((player, index) => {
+                    const angle = (index / players.length) * 2 * Math.PI - Math.PI / 2;
+                    const radiusX = 40; // percentage
+                    const radiusY = 40; // percentage
+                    const left = 50 + radiusX * Math.cos(angle);
+                    const top = 50 + radiusY * Math.sin(angle);
+
+                    const role = getRoleById(player.roleId);
+
+                    return (
+                      <motion.div
+                        key={player.id}
+                        layout
+                        drag
+                        dragSnapToOrigin
+                        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+                        onDragEnd={(_, info) => {
+                          // Dragging logic for circular reordering
+                          const dragX = info.point.x - (window.innerWidth / 2);
+                          const dragY = info.point.y - (window.innerHeight / 2);
+                          let newAngle = Math.atan2(dragY, dragX) + Math.PI / 2;
+                          if (newAngle < 0) newAngle += 2 * Math.PI;
+                          
+                          const newIndex = Math.round((newAngle / (2 * Math.PI)) * players.length) % players.length;
+                          if (newIndex !== index) {
+                            reorderPlayers(index, newIndex);
+                          }
+                        }}
+                        initial={false}
+                        animate={{ left: `${left}%`, top: `${top}%` }}
+                        transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-move group z-10 scale-90 sm:scale-100"
+                        style={{ x: 0, y: 0 }}
+                      >
+                        <div 
+                           onClick={() => handlePlayerClick(player.id)}
+                           className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
+                            selectedPlayerId === player.id 
+                              ? 'border-red-500 ring-4 ring-red-500/20 scale-110 z-20 bg-[#1a0f0a]' 
+                              : 'border-[#3d2b1f] bg-[#0a0502]/80 hover:border-white/20'
+                          }`}
+                        >
+                          {player.isDead && (
+                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
+                              <div className="rotate-12 border border-red-900 text-red-900 font-black px-1 text-[8px] sm:text-xs uppercase">Executed</div>
+                            </div>
+                          )}
+
+                          <div className="flex-1 flex items-center justify-center">
+                            {role && isGrimoireVisible ? (
+                               <div className={`text-center ${typeColors[role.type].split(' ')[0]}`}>
+                                  <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-tighter opacity-70 leading-none">
+                                    {role.type}
+                                  </span>
+                               </div>
+                            ) : (
+                              <HelpCircle className="w-6 h-6 sm:w-8 sm:h-8 opacity-20" />
+                            )}
+                          </div>
+
+                          <div className="w-full bg-black/60 p-1 border-t border-white/10 text-center">
+                            <span className={`text-[9px] sm:text-[10px] font-medium truncate px-1 block ${player.isDead ? 'opacity-30' : ''}`}>
+                              {player.name}
+                            </span>
+                          </div>
+
+                          {role && isGrimoireVisible && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[10%] w-full px-1 text-center pointer-events-none">
+                              <div className={`text-[8px] sm:text-[10px] font-bold uppercase truncate tracking-tight ${typeColors[role.type].split(' ')[0]}`}>
+                                {role.name}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="absolute -top-1 sm:-top-2 flex gap-1">
+                          {player.isDead && (
+                            <div className="bg-red-950 p-1 rounded-full border border-red-500/50 shadow-lg">
+                              <Skull className="w-2.5 h-2.5 sm:w-3 h-3 text-red-500" />
+                            </div>
+                          )}
+                          {!isGrimoireVisible && player.roleId && (
+                            <div className="bg-blue-950 p-1 rounded-full border border-blue-500/50 shadow-lg">
+                              <Shield className="w-2.5 h-2.5 sm:w-3 h-3 text-blue-500" />
+                            </div>
+                          )}
+                          {player.notes && (
+                            <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
+                              <Info className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center opacity-10 pointer-events-none">
+                    <Skull className="w-16 h-16 sm:w-24 sm:h-24" />
+                    <span className="text-xs uppercase font-black tracking-[0.5em] mt-4">Grimoire</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Nav */}
+              <div className="p-4 border-t border-white/10 flex gap-2 bg-[#0a0502]/80 backdrop-blur-sm z-40">
+                <button 
+                  onClick={() => setAppView('setup')}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  <Users className="w-4 h-4" /> Edit Players
+                </button>
+                <button 
+                  onClick={() => setAppView('script')}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  <Layers className="w-4 h-4" /> Change Script
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* PLAYER ACTION MODAL */}
+        <AnimatePresence>
+          {isPlayerMenuOpen && selectedPlayerId && (
+            <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsPlayerMenuOpen(false)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="relative w-full max-w-2xl bg-[#1a0f02] border-t sm:border border-white/10 rounded-t-[2.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              >
+                {/* Modal Header */}
+                <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/20 shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center ${
+                      players.find(p => p.id === selectedPlayerId)?.isDead ? 'border-gray-700 bg-gray-900' : 'border-red-900 bg-red-950/40'
+                    }`}>
+                      {players.find(p => p.id === selectedPlayerId)?.isDead ? <Skull className="w-6 h-6 text-gray-500" /> : <Users className="w-6 h-6 text-red-500" />}
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-white leading-none mb-1">
+                        {players.find(p => p.id === selectedPlayerId)?.name}
+                      </h2>
+                      <p className="text-[10px] uppercase font-black text-red-500 tracking-[0.2em]">Game Actions</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsPlayerMenuOpen(false)}
+                    className="p-3 hover:bg-white/5 rounded-full transition-colors"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-8 pb-12 custom-scrollbar">
+                   {/* Status Row */}
+                   <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => toggleDead(selectedPlayerId)}
+                        className={`py-4 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-3 ${
+                          players.find(p => p.id === selectedPlayerId)?.isDead 
+                            ? 'bg-red-900 border-red-500 text-white shadow-lg shadow-red-900/40' 
+                            : 'bg-black/40 border-white/10 text-[#8e9299]'
+                        }`}
+                      >
+                        <Skull className="w-4 h-4" /> {players.find(p => p.id === selectedPlayerId)?.isDead ? 'Resurrect' : 'Mark Dead'}
+                      </button>
+                      <button 
+                        onClick={() => assignRole(selectedPlayerId, undefined)}
+                        className="py-4 bg-black/40 border border-white/10 hover:border-white/30 text-[#8e9299] rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+                      >
+                        Clear Role
+                      </button>
+                   </div>
+
+                   {/* Notes */}
+                   <div className="space-y-2">
+                      <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">Storyteller Notes</label>
+                      <textarea
+                        value={players.find(p => p.id === selectedPlayerId)?.notes || ''}
+                        onChange={(e) => updateNotes(selectedPlayerId, e.target.value)}
+                        placeholder="Add private observations..."
+                        className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-red-500/50 transition-all resize-none h-24 italic"
+                      />
+                   </div>
+
+                   {/* Role Selector */}
+                   <div className="space-y-4">
+                      <div className="flex justify-between items-end px-1">
+                        <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299]">Assign Character</label>
+                        <div className="flex gap-2">
+                           {(['all', 'townsfolk', 'outsider', 'minion', 'demon'] as const).map(type => (
+                             <button 
+                                key={type}
+                                onClick={() => setRoleFilter(type)}
+                                className={`text-[9px] uppercase font-black px-2 py-1 rounded-md border ${
+                                  roleFilter === type ? 'bg-white/10 border-white/30 text-white' : 'border-transparent text-[#8e9299]'
+                                }`}
+                             >
+                               {type}
+                             </button>
+                           ))}
+                        </div>
+                      </div>
+                      
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
+                        <input 
+                          type="text" 
+                          placeholder="Search characters in script..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-10 pr-3 text-sm focus:outline-none focus:border-red-500/50"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2">
+                        {filteredRoles.map(role => (
+                          <button
+                            key={role.id}
+                            onClick={() => {
+                              assignRole(selectedPlayerId, role.id);
+                              setIsPlayerMenuOpen(false);
+                            }}
+                            className={`p-4 rounded-2xl border text-left transition-all relative overflow-hidden group ${
+                              players.find(p => p.id === selectedPlayerId)?.roleId === role.id
+                                ? 'bg-white border-white text-black ring-4 ring-white/10'
+                                : 'bg-black/20 border-white/5 hover:border-white/20'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="font-bold text-lg leading-tight">{role.name}</span>
+                              <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded-full border ${
+                                players.find(p => p.id === selectedPlayerId)?.roleId === role.id
+                                  ? 'border-gray-300 text-gray-500'
+                                  : typeColors[role.type]
+                              }`}>
+                                {role.type}
+                              </span>
+                            </div>
+                            <p className={`text-xs leading-relaxed ${
+                              players.find(p => p.id === selectedPlayerId)?.roleId === role.id ? 'text-black/60' : 'text-[#8e9299]'
+                            }`}>
+                              {role.ability}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Legacy Modals (Script Builder & Add Role) */}
+      <AnimatePresence>
+        {isScriptBuilderOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsScriptBuilderOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-4xl bg-[#1a0f0a] border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/20 shrink-0">
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-1">Script Builder</h2>
+                  <p className="text-[10px] uppercase font-black text-blue-500 tracking-widest">Custom Edition Config</p>
+                </div>
+                <button onClick={() => setIsScriptBuilderOpen(false)} className="p-2 hover:bg-white/5 rounded-full"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="p-6 flex flex-col gap-6 flex-1 overflow-hidden">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-black text-[#8e9299]">Script Title</label>
+                    <input 
+                      type="text" 
+                      value={builderTitle}
+                      onChange={(e) => setBuilderTitle(e.target.value)}
+                      placeholder="e.g. My Custom Story"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-blue-500/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] uppercase font-black text-[#8e9299]">Search Characters</label>
+                     <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
+                        <input 
+                          type="text" 
+                          value={builderSearch}
+                          onChange={(e) => setBuilderSearch(e.target.value)}
+                          placeholder="Filter pool..."
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500/50"
+                        />
+                     </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-1 custom-scrollbar">
+                  {allAvailableRoles.filter(r => r.name.toLowerCase().includes(builderSearch.toLowerCase())).map(role => (
+                    <button
+                      key={role.id}
+                      onClick={() => toggleRoleInBuilder(role.id)}
+                      className={`p-4 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                        builderRoleIds.includes(role.id) 
+                          ? 'bg-blue-900/20 border-blue-500 text-blue-100' 
+                          : 'bg-black/20 border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-sm">{role.name}</span>
+                        {builderRoleIds.includes(role.id) && <Plus className="w-3 h-3 rotate-45" />}
+                      </div>
+                      <span className="text-[9px] uppercase font-black opacity-50">{role.type}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pt-6 border-t border-white/10 flex justify-between items-center bg-black/20 -mx-6 -mb-6 p-6 shrink-0">
+                   <div className="text-xs font-medium text-[#8e9299]">
+                     <span className="text-white font-bold">{builderRoleIds.length}</span> characters selected
+                   </div>
+                   <button 
+                     onClick={saveScript}
+                     disabled={!builderTitle || builderRoleIds.length === 0}
+                     className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase tracking-widest disabled:opacity-30 shadow-lg shadow-blue-900/20"
+                   >
+                     Save Script
+                   </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddRoleModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddRoleModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg bg-[#1a0f0a] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-6"
+            >
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-1">Create Custom Role</h2>
+                <p className="text-[10px] uppercase font-black text-red-500 tracking-widest">Add to the experimental pool</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-black text-[#8e9299]">Character Name</label>
+                  <input 
+                    type="text" 
+                    value={newRole.name}
+                    onChange={(e) => setNewRole({...newRole, name: e.target.value})}
+                    placeholder="The Gambler"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-red-500/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-black text-[#8e9299]">Role Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled'] as const).map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setNewRole({...newRole, type})}
+                        className={`py-3 rounded-xl border text-[10px] uppercase font-black transition-all ${
+                          newRole.type === type 
+                            ? 'bg-red-900/20 border-red-500 text-red-100' 
+                            : 'bg-black/20 border-white/5 text-[#8e9299]'
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-black text-[#8e9299]">Ability Description</label>
+                  <textarea 
+                    value={newRole.ability}
+                    onChange={(e) => setNewRole({...newRole, ability: e.target.value})}
+                    placeholder="Each night, choose a player..."
+                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm h-32 focus:outline-none focus:border-red-500/50 resize-none"
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={addManualRole}
+                className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-red-950/30 active:scale-95 transition-all"
+              >
+                Summon Character
+              </button>
+            </motion.div>
+          </div>
+        )}
+
+        {/* AI Assistant Drawer */}
+        <AnimatePresence>
+          {isAiDrawerOpen && (
+            <div className="fixed inset-0 z-[110] flex items-end justify-center p-0 sm:p-4 pointer-events-none">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsAiDrawerOpen(false)}
+                className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-auto"
+              />
+              <motion.div 
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                className="relative w-full max-w-xl bg-blue-950/95 border border-blue-500/30 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent" />
+                
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-blue-100 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-blue-400" />
+                      Oracle Assistant
+                    </h2>
+                    <p className="text-[10px] uppercase font-black text-blue-400 tracking-[0.2em] mt-1">Experimental Storytelling Advice</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsAiDrawerOpen(false)}
+                    className="p-2 hover:bg-white/5 rounded-full text-blue-200"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="min-h-[100px] flex items-center justify-center p-6 bg-black/40 rounded-2xl border border-blue-500/10">
+                  {isAiLoading ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+                      <span className="text-xs font-bold text-blue-300 uppercase tracking-widest animate-pulse">Consulting the madness...</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-blue-50/90 leading-relaxed italic text-center">
+                      "{aiTip}"
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-6 text-center">
+                  <p className="text-[10px] text-blue-300/40 uppercase font-bold tracking-widest">
+                    Powered by Gemini 3 Flash • Env Secured
+                  </p>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+const styleTag = typeof document !== 'undefined' ? document.createElement('style') : null;
+if (styleTag) {
+  styleTag.textContent = `
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(0.95); }
+    }
+    .animate-pulse-slow {
+      animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  `;
+  document.head.appendChild(styleTag);
+}
