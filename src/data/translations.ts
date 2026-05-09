@@ -58,7 +58,7 @@ export const UI_TRANSLATIONS = {
     customEditionConfig: 'Custom Edition Config',
     scriptTitle: 'Script Title',
     scriptPlaceholder: 'e.g. My Custom Story',
-    searchCharacters: 'Search Characters',
+    searchChars: 'Search Characters',
     filterPool: 'Filter pool...',
     charactersSelected: 'characters selected',
     saveScript: 'Save Script',
@@ -70,6 +70,10 @@ export const UI_TRANSLATIONS = {
     abilityDescription: 'Ability Description',
     abilityPlaceholder: 'Each night, choose a player...',
     summonCharacter: 'Summon Character',
+    edit: 'Edit',
+    delete: 'Delete',
+    distribution: 'Distribution',
+    setupCounts: 'Standard Setup',
   },
   es: {
     grimoireManager: 'Gestor del Grimorio',
@@ -127,7 +131,7 @@ export const UI_TRANSLATIONS = {
     customEditionConfig: 'Configuración de Edición Personalizada',
     scriptTitle: 'Título del Guion',
     scriptPlaceholder: 'ej. Mi Historia Personalizada',
-    searchCharacters: 'Buscar Personajes',
+    searchChars: 'Buscar Personajes',
     filterPool: 'Filtrar reserva...',
     charactersSelected: 'personajes seleccionados',
     saveScript: 'Guardar Guion',
@@ -139,5 +143,9 @@ export const UI_TRANSLATIONS = {
     abilityDescription: 'Descripción de la Habilidad',
     abilityPlaceholder: 'Cada noche, elige a un jugador...',
     summonCharacter: 'Invocar Personaje',
+    edit: 'Editar',
+    delete: 'Eliminar',
+    distribution: 'Distribución',
+    setupCounts: 'Configuración Estándar',
   }
 };

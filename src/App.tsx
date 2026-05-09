@@ -21,7 +21,8 @@ import {
   FileJson,
   X,
   Sparkles,
-  Loader2
+  Loader2,
+  Edit
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Role, RoleType, EditionType, ALL_ROLES } from './data/roles';
@@ -63,6 +64,7 @@ export default function App() {
   const [builderRoleIds, setBuilderRoleIds] = useState<string[]>([]);
   const [builderSearch, setBuilderSearch] = useState('');
   const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
 
   const [newRole, setNewRole] = useState<{name: string, type: RoleType, ability: string}>({
     name: '',
@@ -175,17 +177,69 @@ export default function App() {
 
   const saveScript = () => {
     if (!builderTitle || builderRoleIds.length === 0) return;
-    const newScript: CustomScript = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: builderTitle,
-      roleIds: builderRoleIds
-    };
-    setCustomScripts([...customScripts, newScript]);
-    setActiveScript(builderRoleIds);
-    setEditionFilter(newScript.id);
+    
+    if (editingScriptId) {
+      setCustomScripts(customScripts.map(s => 
+        s.id === editingScriptId 
+          ? { ...s, name: builderTitle, roleIds: builderRoleIds } 
+          : s
+      ));
+      if (editionFilter === editingScriptId) {
+        setActiveScript(builderRoleIds);
+      }
+    } else {
+      const newScript: CustomScript = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: builderTitle,
+        roleIds: builderRoleIds
+      };
+      setCustomScripts([...customScripts, newScript]);
+      setActiveScript(builderRoleIds);
+      setEditionFilter(newScript.id);
+    }
+    
     setIsScriptBuilderOpen(false);
     setBuilderTitle('');
     setBuilderRoleIds([]);
+    setEditingScriptId(null);
+  };
+
+  const editScript = (id: string) => {
+    const script = customScripts.find(s => s.id === id);
+    if (!script) return;
+    setBuilderTitle(script.name);
+    setBuilderRoleIds(script.roleIds);
+    setEditingScriptId(id);
+    setIsScriptBuilderOpen(true);
+  };
+
+  const deleteScript = (id: string) => {
+    if (confirm(t.delete + '?')) {
+      setCustomScripts(customScripts.filter(s => s.id !== id));
+      if (editionFilter === id) {
+        setEditionFilter('trouble_brewing');
+        setActiveScript(null);
+      }
+    }
+  };
+
+  const getDistribution = (count: number) => {
+    const dist: Record<number, { t: number, o: number, m: number, d: number }> = {
+      5: { t: 3, o: 0, m: 1, d: 1 },
+      6: { t: 3, o: 1, m: 1, d: 1 },
+      7: { t: 5, o: 0, m: 1, d: 1 },
+      8: { t: 5, o: 1, m: 1, d: 1 },
+      9: { t: 5, o: 2, m: 1, d: 1 },
+      10: { t: 7, o: 0, m: 2, d: 1 },
+      11: { t: 7, o: 1, m: 2, d: 1 },
+      12: { t: 7, o: 2, m: 2, d: 1 },
+      13: { t: 9, o: 0, m: 3, d: 1 },
+      14: { t: 9, o: 1, m: 3, d: 1 },
+      15: { t: 9, o: 2, m: 3, d: 1 },
+    };
+    if (count < 5) return { t: 0, o: 0, m: 0, d: 0 };
+    if (count > 15) return dist[15];
+    return dist[count] || dist[5];
   };
 
   const toggleRoleInBuilder = (roleId: string) => {
@@ -459,13 +513,6 @@ export default function App() {
                         <option value="bad_moon_rising">Bad Moon Rising</option>
                         <option value="sects_and_violets">Sects & Violets</option>
                       </optgroup>
-                      {customScripts.length > 0 && (
-                        <optgroup label={t.myCustomScripts}>
-                          {customScripts.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </optgroup>
-                      )}
                       <optgroup label={t.other}>
                         <option value="traveler">{t.travelers}</option>
                         <option value="fabled">{t.fabled}</option>
@@ -479,6 +526,40 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {customScripts.length > 0 && (
+                  <div className="space-y-3">
+                    <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">{t.myCustomScripts}</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {customScripts.map(s => (
+                        <div key={s.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${editionFilter === s.id ? 'bg-blue-900/20 border-blue-500/50' : 'bg-black/20 border-white/5'}`}>
+                          <button 
+                            onClick={() => handleEditionFilter(s.id)}
+                            className="flex-1 text-left font-bold text-sm"
+                          >
+                            {s.name}
+                          </button>
+                          <div className="flex gap-1">
+                            <button 
+                              onClick={() => editScript(s.id)} 
+                              className="p-2 hover:bg-white/5 rounded-lg text-blue-400"
+                              title={t.edit}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => deleteScript(s.id)} 
+                              className="p-2 hover:bg-white/5 rounded-lg text-red-500"
+                              title={t.delete}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <button 
@@ -502,24 +583,48 @@ export default function App() {
                 </div>
 
                 <div className="p-6 bg-white/5 border border-white/5 rounded-3xl">
-                   <h3 className="text-xs font-black uppercase tracking-widest text-[#8e9299] mb-4">{t.previewMix}</h3>
-                   <div className="grid grid-cols-2 gap-2 opacity-60">
-                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
-                        <div className="w-2 h-2 bg-blue-400 rounded-full shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">{t.townsfolk}</span>
+                   <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xs font-black uppercase tracking-widest text-[#8e9299]">{t.previewMix}</h3>
+                      <div className="px-3 py-1 bg-white/5 rounded-full border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40">
+                        {players.length} {t.players || 'Players'}
                       </div>
-                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
-                        <div className="w-2 h-2 bg-blue-200 rounded-full shadow-[0_0_8px_rgba(191,219,254,0.5)]" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">{t.outsiders}</span>
-                      </div>
-                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
-                        <div className="w-2 h-2 bg-red-400 rounded-full shadow-[0_0_8px_rgba(248,113,113,0.5)]" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">{t.minions}</span>
-                      </div>
-                      <div className="p-3 bg-black/40 rounded-xl flex items-center gap-3">
-                        <div className="w-2 h-2 bg-red-600 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)]" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">{t.demons}</span>
-                      </div>
+                   </div>
+                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(() => {
+                        const dist = getDistribution(players.length);
+                        return (
+                          <>
+                            <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-blue-400 rounded-full shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.townsfolk}</span>
+                              </div>
+                              <span className="text-xs font-black text-blue-400">{dist.t}</span>
+                            </div>
+                            <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-blue-200 rounded-full shadow-[0_0_8px_rgba(191,219,254,0.5)]" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.outsiders}</span>
+                              </div>
+                              <span className="text-xs font-black text-blue-200">{dist.o}</span>
+                            </div>
+                            <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-red-400 rounded-full shadow-[0_0_8px_rgba(248,113,113,0.5)]" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.minions}</span>
+                              </div>
+                              <span className="text-xs font-black text-red-400">{dist.m}</span>
+                            </div>
+                            <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-red-600 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)]" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.demons}</span>
+                              </div>
+                              <span className="text-xs font-black text-red-600">{dist.d}</span>
+                            </div>
+                          </>
+                        );
+                      })()}
                    </div>
                 </div>
               </div>
@@ -649,9 +754,44 @@ export default function App() {
                     );
                   })}
 
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center opacity-10 pointer-events-none">
-                    <Skull className="w-16 h-16 sm:w-24 sm:h-24" />
-                    <span className="text-xs uppercase font-black tracking-[0.5em] mt-4">{language === 'es' ? 'Grimorio' : 'Grimoire'}</span>
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none">
+                    <div className="flex flex-col items-center opacity-10 mb-4">
+                      <Skull className="w-12 h-12" />
+                      <span className="text-[10px] uppercase font-black tracking-[0.3em] mt-2">{language === 'es' ? 'Grimorio' : 'Grimoire'}</span>
+                    </div>
+                    
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-black/20 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center gap-2 shadow-2xl"
+                    >
+                      <div className="text-[8px] uppercase font-black tracking-widest text-[#8e9299] opacity-40">{t.setupCounts}</div>
+                      <div className="flex gap-4">
+                        {(() => {
+                          const dist = getDistribution(players.length);
+                          return (
+                            <>
+                              <div className="flex flex-col items-center">
+                                 <span className="text-blue-400 font-black text-sm">{dist.t}</span>
+                                 <span className="text-[7px] uppercase font-bold text-blue-400/40">{language === 'es' ? 'P' : 'T'}</span>
+                              </div>
+                              <div className="flex flex-col items-center">
+                                 <span className="text-blue-200 font-black text-sm">{dist.o}</span>
+                                 <span className="text-[7px] uppercase font-bold text-blue-200/40">{language === 'es' ? 'F' : 'O'}</span>
+                              </div>
+                              <div className="flex flex-col items-center">
+                                 <span className="text-red-400 font-black text-sm">{dist.m}</span>
+                                 <span className="text-[7px] uppercase font-bold text-red-400/40">{language === 'es' ? 'E' : 'M'}</span>
+                              </div>
+                              <div className="flex flex-col items-center">
+                                 <span className="text-red-600 font-black text-sm">{dist.d}</span>
+                                 <span className="text-[7px] uppercase font-bold text-red-600/40">D</span>
+                              </div>
+                            </>
+                          )
+                        })()}
+                      </div>
+                    </motion.div>
                   </div>
                 </div>
               </div>
@@ -858,7 +998,7 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-2">
-                     <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.searchCharacters}</label>
+                     <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.searchChars}</label>
                      <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
                         <input 
