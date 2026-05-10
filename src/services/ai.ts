@@ -9,12 +9,12 @@ export async function getStorytellerAdvice(gameState: any) {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `You are an expert Blood on the Clocktower Storyteller. 
-      The current game state is:
+      The current game state (players, roles, status) is:
       ${JSON.stringify(gameState)}
       
       Provide a brief (1-2 sentence) piece of advice for the Storyteller. 
       Focus on balance, interesting interactions, or social dynamics based on the roles in play.
-      Keep it cryptic and fun.`,
+      Keep it cryptic, fun, and helpful for the Storyteller to run a great game.`,
     });
     
     return response.text;
