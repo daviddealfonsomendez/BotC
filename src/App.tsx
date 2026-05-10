@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   Trash2, 
@@ -20,6 +20,8 @@ import {
   Upload,
   FileJson,
   X,
+  ChevronDown,
+  ChevronUp,
   Sparkles,
   Loader2,
   Edit
@@ -35,6 +37,7 @@ interface Player {
   roleId?: string;
   isDead: boolean;
   notes: string;
+  marking?: 'possible' | 'confirmed' | 'none';
 }
 
 type AppView = 'setup' | 'script' | 'play';
@@ -66,6 +69,10 @@ export default function App() {
   const [builderTab, setBuilderTab] = useState<'all' | RoleType>('all');
   const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [inspectedRole, setInspectedRole] = useState<Role | null>(null);
+  const [isCharacterListCollapsed, setIsCharacterListCollapsed] = useState(false);
+  const longPressTimer = useRef<any>(null);
+  const pressStartTime = useRef<number>(0);
 
   const [newRole, setNewRole] = useState<{name: string, type: RoleType, ability: string}>({
     name: '',
@@ -384,9 +391,51 @@ export default function App() {
     }
   };
 
+  const handlePlayerTap = (id: string) => {
+    setPlayers(prev => prev.map(p => {
+      if (p.id === id) {
+        const currentMarking = p.marking || 'none';
+        let nextMarking: Player['marking'] = 'possible';
+        if (currentMarking === 'possible') nextMarking = 'confirmed';
+        else if (currentMarking === 'confirmed') nextMarking = 'none';
+        return { ...p, marking: nextMarking };
+      }
+      return p;
+    }));
+  };
+
+  const handlePlayerPointerDown = (id: string) => {
+    pressStartTime.current = Date.now();
+    longPressTimer.current = setTimeout(() => {
+      setSelectedPlayerId(id);
+      setIsPlayerMenuOpen(true);
+      longPressTimer.current = null;
+      if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(50);
+      }
+    }, 500);
+  };
+
+  const handlePlayerPointerUp = (id: string) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+      const duration = Date.now() - pressStartTime.current;
+      if (duration < 500) {
+        handlePlayerTap(id);
+      }
+    }
+  };
+
+  const handlePlayerPointerLeave = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
   const handlePlayerClick = (id: string) => {
-    setSelectedPlayerId(id);
-    setIsPlayerMenuOpen(true);
+    // Deprecated for direct tap/hold events but kept for potential generic usage
   };
 
   const reorderPlayers = (fromIndex: number, toIndex: number) => {
@@ -504,7 +553,7 @@ export default function App() {
                         </div>
                         <button 
                           onClick={() => removePlayer(player.id)}
-                          className="p-2 hover:bg-red-900/40 rounded-lg text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="p-2 hover:bg-red-900/40 rounded-lg text-red-400 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -732,9 +781,10 @@ export default function App() {
                               </span>
                             </div>
                             <div className="space-y-1.5">
-                              {rolesOfType.map(role => (
+                               {rolesOfType.map(role => (
                                 <motion.div
                                   key={role.id}
+                                  onTap={() => setInspectedRole(role)}
                                   drag
                                   dragSnapToOrigin
                                   dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
@@ -742,7 +792,7 @@ export default function App() {
                                   onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
                                   className={`p-2.5 rounded-xl border border-white/5 cursor-grab active:cursor-grabbing group hover:border-white/20 transition-all ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(2).join(' ')}`}
                                 >
-                                   <div className="flex items-center gap-2.5">
+                                   <div className="flex items-center gap-2.5 pointer-events-none">
                                       <div className={`w-1.5 h-1.5 rounded-full ${typeColors[role.type as keyof typeof typeColors].split(' ')[0]}`} />
                                       <div className="text-[10px] font-bold text-white group-hover:text-red-400 transition-colors truncate">
                                         {language === 'es' ? (role.nameEs || role.name) : role.name}
@@ -759,27 +809,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Simplified Character List (Mobile) */}
-              <div className="lg:hidden absolute bottom-24 left-0 right-0 p-4 z-30 pointer-events-none">
-                 <div className="flex gap-2 overflow-x-auto pb-4 custom-scrollbar pointer-events-auto no-scrollbar scroll-smooth">
-                    {getActiveRoles().map(role => (
-                       <motion.div
-                         key={role.id}
-                         drag
-                         dragSnapToOrigin
-                         dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-                         whileDrag={{ scale: 1.2, zIndex: 100, pointerEvents: 'none' }}
-                         onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
-                         className={`shrink-0 px-4 py-2 rounded-full border border-white/10 bg-black/80 backdrop-blur-lg text-[9px] font-black uppercase tracking-wider shadow-xl ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(0, 1).join(' ')}`}
-                       >
-                         {language === 'es' ? (role.nameEs || role.name) : role.name}
-                       </motion.div>
-                    ))}
-                 </div>
-              </div>
-              
-              <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
-                <div className="relative aspect-square w-full max-w-[min(85vh,90vw)]">
+              <div className="flex-1 flex flex-col items-center lg:justify-center p-4 sm:p-12 overflow-y-auto lg:overflow-hidden">
+                <div className="relative aspect-square w-full max-w-[min(45vh,85vw)] lg:max-w-[min(85vh,90vw)] shrink-0">
                   {/* Circular Table Track */}
                   <div className="absolute inset-0 border border-white/5 rounded-full flex items-center justify-center">
                     <div className="w-[95%] h-[95%] border border-[#3d2b1f] rounded-full border-dashed opacity-30" />
@@ -821,13 +852,23 @@ export default function App() {
                         style={{ x: 0, y: 0 }}
                       >
                         <div 
-                           onClick={() => handlePlayerClick(player.id)}
+                           onPointerDown={() => handlePlayerPointerDown(player.id)}
+                           onPointerUp={() => handlePlayerPointerUp(player.id)}
+                           onPointerLeave={handlePlayerPointerLeave}
                            data-player-id={player.id}
                            className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
                             selectedPlayerId === player.id 
-                              ? 'border-red-500 ring-4 ring-red-500/20 scale-110 z-20 bg-[#1a0f0a]' 
-                              : 'border-[#3d2b1f] bg-[#0a0502]/80 hover:border-white/20'
-                          }`}
+                              ? 'ring-4 ring-red-500/20 scale-110 z-20 bg-[#1a0f0a]' 
+                              : 'bg-[#0a0502]/80 hover:border-white/20'
+                           } ${
+                            player.marking === 'confirmed' 
+                              ? 'border-green-500' 
+                              : player.marking === 'possible' 
+                                ? 'border-orange-500' 
+                                : selectedPlayerId === player.id 
+                                  ? 'border-red-500' 
+                                  : 'border-[#3d2b1f]'
+                           }`}
                         >
                           {player.isDead && (
                             <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
@@ -922,6 +963,69 @@ export default function App() {
                       </div>
                     </motion.div>
                   </div>
+                </div>
+
+                {/* Simplified Character List (Mobile) */}
+                <div className="lg:hidden w-full mt-4 pb-24 px-4 z-30">
+                   <button 
+                     onClick={() => setIsCharacterListCollapsed(!isCharacterListCollapsed)}
+                     className="w-full flex items-center justify-between mb-2 px-1 py-2 text-[9px] uppercase font-black tracking-widest text-[#8e9299]"
+                   >
+                     <div className="flex items-center gap-2">
+                       <LayoutGrid className="w-3 h-3" />
+                       {language === 'es' ? 'Personajes' : 'Characters'}
+                     </div>
+                     {isCharacterListCollapsed ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                   </button>
+
+                   <AnimatePresence>
+                     {!isCharacterListCollapsed && (
+                       <motion.div 
+                         initial={{ height: 0, opacity: 0 }}
+                         animate={{ height: 'auto', opacity: 1 }}
+                         exit={{ height: 0, opacity: 0 }}
+                         className="space-y-3 overflow-hidden"
+                       >
+                          {(() => {
+                            const roles = getActiveRoles();
+                            const types = ['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled'];
+                            return types.map(type => {
+                              const rolesOfType = roles.filter(r => r.type === type);
+                              if (rolesOfType.length === 0) return null;
+                              return (
+                                <div key={type} className="space-y-1.5">
+                                  <div className="flex items-center gap-2 px-1">
+                                    <div className={`w-1 h-1 rounded-full ${typeColors[type as keyof typeof typeColors].split(' ')[0]}`} />
+                                    <span className="text-[7px] uppercase font-black tracking-[0.1em] text-[#8e9299]">
+                                      {language === 'es' ? (t[type as keyof typeof t] || type) : type}
+                                    </span>
+                                    <div className="h-px flex-1 bg-white/5" />
+                                  </div>
+                                  <div className="flex flex-wrap justify-center gap-1.5">
+                                    {rolesOfType.map(role => (
+                                       <motion.div
+                                         key={role.id}
+                                         onTap={() => setInspectedRole(role)}
+                                         drag
+                                         dragSnapToOrigin
+                                         dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+                                         whileDrag={{ scale: 1.2, zIndex: 100, pointerEvents: 'none' }}
+                                         onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
+                                         className={`px-3 py-1.5 rounded-full border border-white/10 bg-black/80 backdrop-blur-lg text-[8px] font-black uppercase tracking-tight shadow-xl ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(0, 1).join(' ')}`}
+                                       >
+                                         <span className="pointer-events-none">
+                                            {language === 'es' ? (role.nameEs || role.name) : role.name}
+                                         </span>
+                                       </motion.div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                       </motion.div>
+                     )}
+                   </AnimatePresence>
                 </div>
               </div>
 
@@ -1294,6 +1398,64 @@ export default function App() {
 
         {/* AI Assistant Drawer */}
         <AnimatePresence>
+          {inspectedRole && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setInspectedRole(null)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="relative w-full max-w-sm bg-[#1a0f0a] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl overflow-hidden"
+              >
+                <div className={`absolute top-0 left-0 w-full h-1.5 ${typeColors[inspectedRole.type as keyof typeof typeColors].split(' ')[0]}`} />
+                
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-2 h-2 rounded-full ${typeColors[inspectedRole.type as keyof typeof typeColors].split(' ')[0]}`} />
+                      <span className="text-[10px] uppercase font-black tracking-[0.2em] text-[#8e9299]">
+                        {language === 'es' ? (t[inspectedRole.type as keyof typeof t] || inspectedRole.type) : inspectedRole.type}
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-black text-white tracking-tight">
+                      {language === 'es' ? (inspectedRole.nameEs || inspectedRole.name) : inspectedRole.name}
+                    </h2>
+                  </div>
+                  <button 
+                    onClick={() => setInspectedRole(null)}
+                    className="p-2 hover:bg-white/5 rounded-full text-white/40 hover:text-white"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="p-5 bg-black/40 rounded-2xl border border-white/5">
+                    <label className="text-[9px] uppercase font-black tracking-widest text-red-500/80 mb-3 block">
+                      {t.abilityDescription}
+                    </label>
+                    <p className="text-sm text-white/90 leading-relaxed font-medium">
+                      {language === 'es' ? (inspectedRole.abilityEs || inspectedRole.ability) : inspectedRole.ability}
+                    </p>
+                  </div>
+
+                  <button 
+                    onClick={() => setInspectedRole(null)}
+                    className="w-full py-4 bg-white text-black rounded-2xl font-black uppercase tracking-widest active:scale-95 transition-all text-sm"
+                  >
+                    {t.back}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
           {isAiDrawerOpen && (
             <div className="fixed inset-0 z-[110] flex items-end justify-center p-0 sm:p-4 pointer-events-none">
               <motion.div 
