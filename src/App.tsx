@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Eye,
   EyeOff,
+  Lock,
   MoveUp,
   MoveDown,
   Layers,
@@ -71,6 +72,8 @@ export default function App() {
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [inspectedRole, setInspectedRole] = useState<Role | null>(null);
   const [isCharacterListCollapsed, setIsCharacterListCollapsed] = useState(false);
+  const [isDraggingCharacter, setIsDraggingCharacter] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(false);
   const longPressTimer = useRef<any>(null);
   const pressStartTime = useRef<number>(0);
 
@@ -476,13 +479,22 @@ export default function App() {
             </button>
           </div>
           {appView === 'play' && (
-            <button 
-              onClick={() => setIsGrimoireVisible(!isGrimoireVisible)}
-              className="p-2 hover:bg-white/5 rounded-lg transition-colors border border-white/5"
-              title="Toggle Secrets Visibility"
-            >
-              {isGrimoireVisible ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5 opacity-50" />}
-            </button>
+            <div className="flex gap-1 mr-1">
+              <button 
+                onClick={() => setPrivacyMode(!privacyMode)}
+                className={`p-2 hover:bg-white/5 rounded-lg transition-all border ${privacyMode ? 'bg-amber-900/40 border-amber-500/50 text-amber-400' : 'border-white/5 text-white/40'}`}
+                title={language === 'es' ? 'Modo Privacidad' : 'Privacy Mode'}
+              >
+                <Lock className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => setIsGrimoireVisible(!isGrimoireVisible)}
+                className="p-2 hover:bg-white/5 rounded-lg transition-colors border border-white/5"
+                title="Toggle Secrets Visibility"
+              >
+                {isGrimoireVisible ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5 opacity-50" />}
+              </button>
+            </div>
           )}
           {appView === 'play' && (
             <button 
@@ -784,12 +796,20 @@ export default function App() {
                                {rolesOfType.map(role => (
                                 <motion.div
                                   key={role.id}
-                                  onTap={() => setInspectedRole(role)}
+                                  onTap={() => {
+                                    if (!isDraggingCharacter) {
+                                      setInspectedRole(role);
+                                    }
+                                  }}
                                   drag
                                   dragSnapToOrigin
+                                  onDragStart={() => setIsDraggingCharacter(true)}
+                                  onDragEnd={(_, info) => {
+                                    setIsDraggingCharacter(false);
+                                    handleCharacterDrop(info.point, role.id);
+                                  }}
                                   dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
                                   whileDrag={{ scale: 1.1, zIndex: 50, pointerEvents: 'none' }}
-                                  onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
                                   className={`p-2.5 rounded-xl border border-white/5 cursor-grab active:cursor-grabbing group hover:border-white/20 transition-all ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(2).join(' ')}`}
                                 >
                                    <div className="flex items-center gap-2.5 pointer-events-none">
@@ -877,7 +897,7 @@ export default function App() {
                           )}
 
                           <div className="flex-1 flex items-center justify-center">
-                            {role && isGrimoireVisible ? (
+                            {role && isGrimoireVisible && !privacyMode ? (
                                <div className={`text-center ${typeColors[role.type].split(' ')[0]}`}>
                                   <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-tighter opacity-70 leading-none">
                                     {language === 'es' ? (t[role.type as keyof typeof t] || role.type) : role.type}
@@ -894,11 +914,11 @@ export default function App() {
                             </span>
                           </div>
 
-                          {role && isGrimoireVisible && (
+                          {role && isGrimoireVisible && !privacyMode && (
                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[10%] w-full px-1 text-center pointer-events-none">
-                              <div className={`text-[8px] sm:text-[10px] font-bold uppercase truncate tracking-tight ${typeColors[role.type].split(' ')[0]}`}>
-                                {language === 'es' ? (role.nameEs || role.name) : role.name}
-                              </div>
+                               <div className={`text-[8px] sm:text-[10px] font-bold uppercase truncate tracking-tight ${typeColors[role.type].split(' ')[0]}`}>
+                                 {language === 'es' ? (role.nameEs || role.name) : role.name}
+                               </div>
                             </div>
                           )}
                         </div>
@@ -965,11 +985,13 @@ export default function App() {
                   </div>
                 </div>
 
+              </div>
+
                 {/* Simplified Character List (Mobile) */}
-                <div className="lg:hidden w-full mt-4 pb-24 px-4 z-30">
+                <div className="lg:hidden w-full px-4 z-30 bg-[#0a0502]/80 backdrop-blur-md border-t border-white/5 shrink-0">
                    <button 
                      onClick={() => setIsCharacterListCollapsed(!isCharacterListCollapsed)}
-                     className="w-full flex items-center justify-between mb-2 px-1 py-2 text-[9px] uppercase font-black tracking-widest text-[#8e9299]"
+                     className="w-full flex items-center justify-between py-3 text-[9px] uppercase font-black tracking-widest text-[#8e9299]"
                    >
                      <div className="flex items-center gap-2">
                        <LayoutGrid className="w-3 h-3" />
@@ -984,7 +1006,7 @@ export default function App() {
                          initial={{ height: 0, opacity: 0 }}
                          animate={{ height: 'auto', opacity: 1 }}
                          exit={{ height: 0, opacity: 0 }}
-                         className="space-y-3 overflow-hidden"
+                         className="space-y-4 pb-6 overflow-y-auto max-h-[40vh] custom-scrollbar"
                        >
                           {(() => {
                             const roles = getActiveRoles();
@@ -993,7 +1015,7 @@ export default function App() {
                               const rolesOfType = roles.filter(r => r.type === type);
                               if (rolesOfType.length === 0) return null;
                               return (
-                                <div key={type} className="space-y-1.5">
+                                <div key={type} className="space-y-2">
                                   <div className="flex items-center gap-2 px-1">
                                     <div className={`w-1 h-1 rounded-full ${typeColors[type as keyof typeof typeColors].split(' ')[0]}`} />
                                     <span className="text-[7px] uppercase font-black tracking-[0.1em] text-[#8e9299]">
@@ -1001,16 +1023,24 @@ export default function App() {
                                     </span>
                                     <div className="h-px flex-1 bg-white/5" />
                                   </div>
-                                  <div className="flex flex-wrap justify-center gap-1.5">
+                                  <div className="flex flex-wrap justify-center gap-2">
                                     {rolesOfType.map(role => (
                                        <motion.div
                                          key={role.id}
-                                         onTap={() => setInspectedRole(role)}
+                                         onTap={() => {
+                                           if (!isDraggingCharacter) {
+                                             setInspectedRole(role);
+                                           }
+                                         }}
                                          drag
                                          dragSnapToOrigin
+                                         onDragStart={() => setIsDraggingCharacter(true)}
+                                         onDragEnd={(_, info) => {
+                                           setIsDraggingCharacter(false);
+                                           handleCharacterDrop(info.point, role.id);
+                                         }}
                                          dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
                                          whileDrag={{ scale: 1.2, zIndex: 100, pointerEvents: 'none' }}
-                                         onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
                                          className={`px-3 py-1.5 rounded-full border border-white/10 bg-black/80 backdrop-blur-lg text-[8px] font-black uppercase tracking-tight shadow-xl ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(0, 1).join(' ')}`}
                                        >
                                          <span className="pointer-events-none">
@@ -1027,7 +1057,6 @@ export default function App() {
                      )}
                    </AnimatePresence>
                 </div>
-              </div>
 
               {/* Bottom Nav */}
               <div className="p-4 border-t border-white/10 flex gap-2 bg-[#0a0502]/80 backdrop-blur-sm z-40">
