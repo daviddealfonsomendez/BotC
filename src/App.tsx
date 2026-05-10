@@ -63,6 +63,7 @@ export default function App() {
   const [builderTitle, setBuilderTitle] = useState('');
   const [builderRoleIds, setBuilderRoleIds] = useState<string[]>([]);
   const [builderSearch, setBuilderSearch] = useState('');
+  const [builderTab, setBuilderTab] = useState<'all' | RoleType>('all');
   const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
 
@@ -201,6 +202,7 @@ export default function App() {
     setIsScriptBuilderOpen(false);
     setBuilderTitle('');
     setBuilderRoleIds([]);
+    setBuilderTab('all');
     setEditingScriptId(null);
   };
 
@@ -280,6 +282,61 @@ export default function App() {
 
   const getRoleById = (id?: string) => allAvailableRoles.find(r => r.id === id);
 
+  const getActiveRoles = () => {
+    let roles: Role[] = [];
+    if (activeScript) {
+      roles = allAvailableRoles.filter(r => activeScript.includes(r.id));
+    } else {
+      if (editionFilter === 'all') roles = allAvailableRoles;
+      else if (editionFilter === 'custom') roles = customRoles;
+      else roles = allAvailableRoles.filter(r => r.edition === editionFilter || r.id === editionFilter);
+    }
+    
+    const order = { townsfolk: 0, outsider: 1, minion: 2, demon: 3, traveler: 4, fabled: 5 };
+    return [...roles].sort((a, b) => {
+      const typeDiff = (order[a.type as keyof typeof order] || 99) - (order[b.type as keyof typeof order] || 99);
+      if (typeDiff !== 0) return typeDiff;
+      const nameA = language === 'es' ? (a.nameEs || a.name) : a.name;
+      const nameB = language === 'es' ? (b.nameEs || b.name) : b.name;
+      return nameA.localeCompare(nameB);
+    });
+  };
+
+  const handleCharacterDrop = (point: { x: number, y: number }, roleId: string) => {
+    const playerElements = document.querySelectorAll('[data-player-id]');
+    let foundPlayerId = null;
+    let minDistance = 60; // radius of search in pixels for a near-miss
+    
+    for (const el of Array.from(playerElements)) {
+      if (!(el instanceof HTMLElement)) continue;
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      // Check if point is inside the rect (exact hit)
+      if (
+        point.x >= rect.left &&
+        point.x <= rect.right &&
+        point.y >= rect.top &&
+        point.y <= rect.bottom
+      ) {
+        foundPlayerId = el.getAttribute('data-player-id');
+        break;
+      }
+
+      // Fallback: check distance to center for "near misses"
+      const dist = Math.sqrt(Math.pow(point.x - centerX, 2) + Math.pow(point.y - centerY, 2));
+      if (dist < minDistance) {
+        minDistance = dist;
+        foundPlayerId = el.getAttribute('data-player-id');
+      }
+    }
+    
+    if (foundPlayerId) {
+      assignRole(foundPlayerId, roleId);
+    }
+  };
+
   const handleAiAdvice = async () => {
     setIsAiLoading(true);
     setIsAiDrawerOpen(true);
@@ -306,15 +363,15 @@ export default function App() {
   };
 
   const editions = [
-    { id: 'trouble_brewing', name: 'Trouble Brewing' },
-    { id: 'bad_moon_rising', name: 'Bad Moon Rising' },
-    { id: 'sects_and_violets', name: 'Sects & Violets' },
+    { id: 'trouble_brewing', name: t.troubleBrewing },
+    { id: 'bad_moon_rising', name: t.badMoonRising },
+    { id: 'sects_and_violets', name: t.sectsAndViolets },
     ...customScripts.map(s => ({ id: s.id, name: s.name })),
-    { id: 'traveler', name: 'Travelers' },
-    { id: 'fabled', name: 'Fabled' },
-    { id: 'experimental', name: 'Experimental' },
-    { id: 'custom', name: 'Custom Roles' },
-    { id: 'all', name: 'All Roles' },
+    { id: 'traveler', name: t.traveler },
+    { id: 'fabled', name: t.fabled },
+    { id: 'experimental', name: t.experimental },
+    { id: 'custom', name: t.customRole },
+    { id: 'all', name: t.all },
   ];
 
   const handleEditionFilter = (id: string) => {
@@ -509,12 +566,12 @@ export default function App() {
                       className="w-full appearance-none bg-[#1a0f0a] border border-white/10 rounded-2xl p-5 text-lg font-bold focus:outline-none focus:border-blue-500/50 shadow-xl cursor-pointer"
                     >
                       <optgroup label={t.officialScripts}>
-                        <option value="trouble_brewing">Trouble Brewing</option>
-                        <option value="bad_moon_rising">Bad Moon Rising</option>
-                        <option value="sects_and_violets">Sects & Violets</option>
+                        <option value="trouble_brewing">{t.troubleBrewing}</option>
+                        <option value="bad_moon_rising">{t.badMoonRising}</option>
+                        <option value="sects_and_violets">{t.sectsAndViolets}</option>
                       </optgroup>
                       <optgroup label={t.other}>
-                        <option value="traveler">{t.travelers}</option>
+                        <option value="traveler">{t.traveler}</option>
                         <option value="fabled">{t.fabled}</option>
                         <option value="experimental">{t.experimental}</option>
                         <option value="custom">{t.customRolesOnly}</option>
@@ -604,21 +661,21 @@ export default function App() {
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <div className="w-2 h-2 bg-blue-200 rounded-full shadow-[0_0_8px_rgba(191,219,254,0.5)]" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.outsiders}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.outsider}</span>
                               </div>
                               <span className="text-xs font-black text-blue-200">{dist.o}</span>
                             </div>
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <div className="w-2 h-2 bg-red-400 rounded-full shadow-[0_0_8px_rgba(248,113,113,0.5)]" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.minions}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.minion}</span>
                               </div>
                               <span className="text-xs font-black text-red-400">{dist.m}</span>
                             </div>
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <div className="w-2 h-2 bg-red-600 rounded-full shadow-[0_0_8px_rgba(220,38,38,0.5)]" />
-                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.demons}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest">{t.demon}</span>
                               </div>
                               <span className="text-xs font-black text-red-600">{dist.d}</span>
                             </div>
@@ -651,6 +708,76 @@ export default function App() {
             >
               <div className="absolute inset-0 opacity-5 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
               
+              {/* Simplified Character List Sidebar (Desktop) */}
+              <div className="absolute left-6 top-6 bottom-32 w-56 hidden lg:flex flex-col gap-4 z-30">
+                <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-6 flex flex-col h-full overflow-hidden shadow-2xl">
+                  <div className="shrink-0 mb-4">
+                    <h3 className="text-[10px] uppercase font-black text-red-500 tracking-[0.3em] flex items-center gap-2">
+                       <Sparkles className="w-3 h-3" /> {t.characters}
+                    </h3>
+                    <p className="text-[9px] text-[#8e9299] mt-1 leading-tight font-medium">{t.dragToAssign}</p>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2 space-y-6">
+                    {(() => {
+                      const roles = getActiveRoles();
+                      return ['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled'].map(type => {
+                        const rolesOfType = roles.filter(r => r.type === type);
+                        if (rolesOfType.length === 0) return null;
+                        return (
+                          <div key={type} className="space-y-2">
+                            <div className={`px-2 py-1 rounded-lg bg-black/40 border-l-2 mb-2 ${typeColors[type as keyof typeof typeColors].split(' ').slice(0, 2).join(' ')}`}>
+                              <span className="text-[8px] uppercase font-black tracking-[0.2em] opacity-80">
+                                {language === 'es' ? (t[type as keyof typeof t] || type) : type}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {rolesOfType.map(role => (
+                                <motion.div
+                                  key={role.id}
+                                  drag
+                                  dragSnapToOrigin
+                                  dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+                                  whileDrag={{ scale: 1.1, zIndex: 50, pointerEvents: 'none' }}
+                                  onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
+                                  className={`p-2.5 rounded-xl border border-white/5 cursor-grab active:cursor-grabbing group hover:border-white/20 transition-all ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(2).join(' ')}`}
+                                >
+                                   <div className="flex items-center gap-2.5">
+                                      <div className={`w-1.5 h-1.5 rounded-full ${typeColors[role.type as keyof typeof typeColors].split(' ')[0]}`} />
+                                      <div className="text-[10px] font-bold text-white group-hover:text-red-400 transition-colors truncate">
+                                        {language === 'es' ? (role.nameEs || role.name) : role.name}
+                                      </div>
+                                   </div>
+                                </motion.div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Simplified Character List (Mobile) */}
+              <div className="lg:hidden absolute bottom-24 left-0 right-0 p-4 z-30 pointer-events-none">
+                 <div className="flex gap-2 overflow-x-auto pb-4 custom-scrollbar pointer-events-auto no-scrollbar scroll-smooth">
+                    {getActiveRoles().map(role => (
+                       <motion.div
+                         key={role.id}
+                         drag
+                         dragSnapToOrigin
+                         dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
+                         whileDrag={{ scale: 1.2, zIndex: 100, pointerEvents: 'none' }}
+                         onDragEnd={(_, info) => handleCharacterDrop(info.point, role.id)}
+                         className={`shrink-0 px-4 py-2 rounded-full border border-white/10 bg-black/80 backdrop-blur-lg text-[9px] font-black uppercase tracking-wider shadow-xl ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(0, 1).join(' ')}`}
+                       >
+                         {language === 'es' ? (role.nameEs || role.name) : role.name}
+                       </motion.div>
+                    ))}
+                 </div>
+              </div>
+              
               <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
                 <div className="relative aspect-square w-full max-w-[min(85vh,90vw)]">
                   {/* Circular Table Track */}
@@ -670,6 +797,7 @@ export default function App() {
                     return (
                       <motion.div
                         key={player.id}
+                        data-player-id={player.id}
                         layout
                         drag
                         dragSnapToOrigin
@@ -694,6 +822,7 @@ export default function App() {
                       >
                         <div 
                            onClick={() => handlePlayerClick(player.id)}
+                           data-player-id={player.id}
                            className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
                             selectedPlayerId === player.id 
                               ? 'border-red-500 ring-4 ring-red-500/20 scale-110 z-20 bg-[#1a0f0a]' 
@@ -986,37 +1115,74 @@ export default function App() {
               </div>
 
               <div className="p-6 flex flex-col gap-6 flex-1 overflow-hidden">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.scriptTitle}</label>
-                    <input 
-                      type="text" 
-                      value={builderTitle}
-                      onChange={(e) => setBuilderTitle(e.target.value)}
-                      placeholder={t.scriptPlaceholder}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-blue-500/50"
-                    />
+                <div className="flex flex-col gap-4 shrink-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.scriptTitle}</label>
+                      <input 
+                        type="text" 
+                        value={builderTitle}
+                        onChange={(e) => setBuilderTitle(e.target.value)}
+                        placeholder={t.scriptPlaceholder}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-blue-500/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.searchChars}</label>
+                       <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
+                          <input 
+                            type="text" 
+                            value={builderSearch}
+                            onChange={(e) => setBuilderSearch(e.target.value)}
+                            placeholder={t.filterPool}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500/50"
+                          />
+                       </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.searchChars}</label>
-                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
-                        <input 
-                          type="text" 
-                          value={builderSearch}
-                          onChange={(e) => setBuilderSearch(e.target.value)}
-                          placeholder={t.filterPool}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500/50"
-                        />
-                     </div>
+
+                  <div className="flex gap-1 overflow-x-auto pb-2 custom-scrollbar">
+                    <button 
+                      onClick={() => setBuilderTab('all')}
+                      className={`px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest whitespace-nowrap transition-all border ${builderTab === 'all' ? 'bg-white text-black border-white' : 'bg-white/5 text-[#8e9299] border-white/5 hover:border-white/10'}`}
+                    >
+                      {t.all}
+                    </button>
+                    {(['townsfolk', 'outsider', 'minion', 'demon'] as const).map(type => (
+                      <button 
+                        key={type}
+                        onClick={() => setBuilderTab(type)}
+                        className={`px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest whitespace-nowrap transition-all border ${builderTab === type ? 'bg-white text-black border-white' : 'bg-white/5 text-[#8e9299] border-white/5 hover:border-white/10'}`}
+                      >
+                        {t[type as keyof typeof t]}
+                      </button>
+                    ))}
+                    <button 
+                      onClick={() => setBuilderTab('traveler')} // We'll handle others separately or group them
+                      className={`px-4 py-2 rounded-xl text-[10px] uppercase font-black tracking-widest whitespace-nowrap transition-all border ${builderTab === 'traveler' || builderTab === 'fabled' ? 'bg-white text-black border-white' : 'bg-white/5 text-[#8e9299] border-white/5 hover:border-white/10'}`}
+                    >
+                      {t.other}
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-1 custom-scrollbar">
-                  {allAvailableRoles.filter(r => 
-                    r.name.toLowerCase().includes(builderSearch.toLowerCase()) || 
-                    (r.nameEs && r.nameEs.toLowerCase().includes(builderSearch.toLowerCase()))
-                  ).map(role => (
+                <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-1 custom-scrollbar content-start">
+                  {allAvailableRoles.filter(r => {
+                    const matchesSearch = r.name.toLowerCase().includes(builderSearch.toLowerCase()) || 
+                                        (r.nameEs && r.nameEs.toLowerCase().includes(builderSearch.toLowerCase()));
+                    
+                    let matchesTab = true;
+                    if (builderTab !== 'all') {
+                      if (builderTab === 'traveler') {
+                        matchesTab = r.type === 'traveler' || r.type === 'fabled';
+                      } else {
+                        matchesTab = r.type === builderTab;
+                      }
+                    }
+                    
+                    return matchesSearch && matchesTab;
+                  }).map(role => (
                     <button
                       key={role.id}
                       onClick={() => toggleRoleInBuilder(role.id)}
