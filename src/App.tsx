@@ -1003,25 +1003,21 @@ export default function App() {
                            onPointerLeave={handlePlayerPointerLeave}
                            data-player-id={player.id}
                            className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
-                            selectedPlayerId === player.id 
-                              ? 'ring-4 ring-amber-500/20 scale-110 z-20 bg-[#1a0f0a]' 
-                              : 'bg-[#0a0502]/80 hover:border-white/20'
+                            player.isDead 
+                              ? 'border-stone-800 bg-[#0a0a0a] grayscale opacity-70'
+                              : selectedPlayerId === player.id 
+                                ? 'ring-4 ring-amber-500/20 scale-110 z-20 bg-[#1a0f0a]' 
+                                : 'bg-[#0a0502]/80 hover:border-white/20'
                            } ${
-                            player.marking === 'confirmed' 
+                            !player.isDead && player.marking === 'confirmed' 
                               ? 'border-green-500' 
-                              : player.marking === 'possible' 
+                              : !player.isDead && player.marking === 'possible' 
                                 ? 'border-orange-500' 
                                 : selectedPlayerId === player.id 
                                   ? 'border-amber-500' 
                                   : 'border-[#3d2b1f]'
                            }`}
                         >
-                          {player.isDead && (
-                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
-                              <div className="rotate-12 border border-stone-800 text-stone-800 font-black px-1 text-[8px] sm:text-xs uppercase">{t.executed}</div>
-                            </div>
-                          )}
-
                           <div className="flex-1 flex items-center justify-center">
                             {!role || !isGrimoireVisible || privacyMode ? (
                               <HelpCircle className="w-6 h-6 sm:w-8 sm:h-8 opacity-20" />
@@ -1029,42 +1025,37 @@ export default function App() {
                           </div>
 
                           <div className="w-full bg-[#1a0f0a]/60 py-1 border-t border-white/5 text-center mt-auto">
-                            <span className={`text-[8px] sm:text-[10px] font-bold tracking-tight truncate px-1 block ${player.isDead ? 'opacity-30 text-white/50' : 'text-white/80'}`}>
+                            <span className={`text-[8px] sm:text-[10px] font-bold tracking-tight truncate px-1 block ${player.isDead ? 'text-white/60' : 'text-white/80'}`}>
                               {player.name}
                             </span>
                           </div>
 
                           {role && isGrimoireVisible && !privacyMode && (
-                            <div className="absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-1 text-center pointer-events-none flex flex-col items-center justify-center min-h-[40%]">
-                               <div className={`text-[9px] sm:text-[12px] font-black uppercase tracking-tighter leading-[0.85] sm:leading-[0.9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] ${typeColors[role.type].split(' ')[0]}`}>
-                                 {formatRoleName(language === 'es' ? (role.nameEs || role.name) : role.name)}
-                               </div>
-                            </div>
-                          )}
+                           <div className={`absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-1 text-center pointer-events-none flex flex-col items-center justify-center min-h-[40%] ${player.isDead ? 'opacity-60' : ''}`}>
+                              <div className={`text-[9px] sm:text-[12px] font-black uppercase tracking-tighter leading-[0.85] sm:leading-[0.9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] ${typeColors[role.type].split(' ')[0]}`}>
+                                {formatRoleName(language === 'es' ? (role.nameEs || role.name) : role.name)}
+                              </div>
+                           </div>
+                         )}
                         </div>
                         
                         <div className="absolute -top-1 sm:-top-2 flex gap-1 z-30">
-                          {player.isDead && (
-                            <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
-                              <Skull className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
-                            </div>
-                          )}
-                          {!isGrimoireVisible && player.roleId && (
+                          {!player.isDead && !isGrimoireVisible && player.roleId && (
                             <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
                               <Shield className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
                           )}
-                          {!privacyMode && player.abilityType === 'info' && (
+                          {!player.isDead && !privacyMode && player.abilityType === 'info' && (
                             <div className="bg-blue-950 p-1 rounded-full border border-blue-500/50 shadow-lg">
                               <Search className="w-2.5 h-2.5 sm:w-3 h-3 text-blue-400" />
                             </div>
                           )}
-                          {!privacyMode && player.abilityType === 'action' && (
+                          {!player.isDead && !privacyMode && player.abilityType === 'action' && (
                             <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
                               <Zap className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-400" />
                             </div>
                           )}
-                          {!privacyMode && player.notes && (
+                          {!player.isDead && !privacyMode && player.notes && (
                             <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
                               <BookOpen className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
