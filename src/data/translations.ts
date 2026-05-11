@@ -79,6 +79,11 @@ export const UI_TRANSLATIONS = {
     sectsAndViolets: 'Sects & Violets',
     characters: 'Characters',
     dragToAssign: 'Drag & drop a character onto a player pill to assign it',
+    share: 'Share',
+    copyLink: 'Copy Link',
+    linkCopied: 'Link copied to clipboard!',
+    loadingScript: 'Loading shared script...',
+    scriptNotFound: 'Shared script not found.',
   },
   es: {
     grimoireManager: 'Gestor del Grimorio',
@@ -157,5 +162,10 @@ export const UI_TRANSLATIONS = {
     sectsAndViolets: 'Sectas y Violetas',
     characters: 'Personajes',
     dragToAssign: 'Arrastra y suelta un personaje sobre el círculo de un jugador para asignarlo',
+    share: 'Compartir',
+    copyLink: 'Copiar Enlace',
+    linkCopied: '¡Enlace copiado al portapapeles!',
+    loadingScript: 'Cargando guion compartido...',
+    scriptNotFound: 'Guion compartido no encontrado.',
   }
 };

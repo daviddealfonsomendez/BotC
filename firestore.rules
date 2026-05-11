@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRole(role) {
+      return role.keys().hasAll(['id', 'name', 'type', 'ability', 'edition'])
+        && role.id is string && role.id.size() <= 100
+        && role.name is string && role.name.size() <= 100
+        && role.type in ['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled']
+        && role.ability is string && role.ability.size() <= 1000
+        && role.edition is string && role.edition.size() <= 100
+        && (!role.keys().contains('nameEs') || (role.nameEs is string && role.nameEs.size() <= 100))
+        && (!role.keys().contains('abilityEs') || (role.abilityEs is string && role.abilityEs.size() <= 1000));
+    }
+
+    function isValidSharedScript(data) {
+      return data.keys().hasAll(['name', 'roleIds', 'createdAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.roleIds is list && data.roleIds.size() > 0 && data.roleIds.size() <= 50
+        && (data.roleIds[0] is string)
+        && data.createdAt == request.time
+        && (!data.keys().contains('customRoles') || (
+            data.customRoles is list && data.customRoles.size() <= 50
+            // Note: Firestore rules have limited iteration, but we can check the first item if it exists
+            && (data.customRoles.size() == 0 || isValidRole(data.customRoles[0]))
+        ))
+        && data.keys().size() <= 10; // Prevent ghost fields
+    }
+
+    match /sharedScripts/{scriptId} {
+      allow get: if true; // Public access via ID
+      allow list: if false; // Deny listing
+      allow create: if isValidId(scriptId) && isValidSharedScript(incoming());
+      allow update, delete: if false; // Immutable after creation
+    }
+  }
+}

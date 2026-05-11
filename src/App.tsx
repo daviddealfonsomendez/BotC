@@ -25,12 +25,16 @@ import {
   ChevronUp,
   Sparkles,
   Loader2,
-  Edit
+  Edit,
+  Share2,
+  Copy,
+  CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Role, RoleType, EditionType, ALL_ROLES } from './data/roles';
 import { getStorytellerAdvice } from './services/ai';
 import { UI_TRANSLATIONS, Language } from './data/translations';
+import { shareScript, getSharedScript, testConnection } from './lib/firebase';
 
 interface Player {
   id: string;
@@ -71,7 +75,7 @@ export default function App() {
   const [customScripts, setCustomScripts] = useState<CustomScript[]>([]);
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [inspectedRole, setInspectedRole] = useState<Role | null>(null);
-  const [isCharacterListCollapsed, setIsCharacterListCollapsed] = useState(false);
+  const [isCharacterListCollapsed, setIsCharacterListCollapsed] = useState(true);
   const [isDraggingCharacter, setIsDraggingCharacter] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
   const longPressTimer = useRef<any>(null);
@@ -88,7 +92,127 @@ export default function App() {
     return (saved as Language) || 'en';
   });
 
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+
   const t = UI_TRANSLATIONS[language];
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const formatRoleName = (name: string) => {
+    if (!name) return null;
+    
+    // Explicit splits for common long BotC words or those mentioned by user
+    const splits: Record<string, string[]> = {
+      'washerwoman': ['Washer', 'woman'],
+      'investigator': ['Investi', 'gator'],
+      'investigador': ['Investi', 'gador'],
+      'bibliotecario': ['Biblio', 'tecario'],
+      'sepulturero': ['Sepul', 'turero'],
+      'envenenador': ['Envene', 'nador'],
+      'mayordomo': ['Mayor', 'domo'],
+      'fortuneteller': ['Fortune', 'Teller'],
+      'scarletwoman': ['Scarlet', 'Woman'],
+      'philosopher': ['Philo', 'sopher'],
+      'marionette': ['Mario', 'nette'],
+      'barber': ['Barber'],
+      'dreamer': ['Dreamer'],
+      ' कलाकार': ['कलाकार'],
+      'villain': ['Villain'],
+      'cerenovus': ['Cere', 'novus'],
+      'herbolario': ['Herbo', 'lario'],
+      'malabarista': ['Mala', 'barista'],
+    };
+
+    const cleanKey = name.toLowerCase().replace(/\s/g, '');
+    if (splits[cleanKey]) {
+      return splits[cleanKey].map((part, i) => (
+        <span key={i} className="block">{part}</span>
+      ));
+    }
+
+    // Generic split for names with spaces
+    if (name.includes(' ')) {
+      return name.split(' ').map((word, i) => (
+        <span key={i} className="block">{word}</span>
+      ));
+    }
+
+    // Long words fallback
+    if (name.length > 9) {
+      const mid = Math.ceil(name.length / 2);
+      // Try to split at a vowel if possible or just middle
+      return (
+        <>
+          <span className="block">{name.substring(0, mid)}</span>
+          <span>{name.substring(mid)}</span>
+        </>
+      );
+    }
+
+    return name;
+  };
+
+  const loadSharedScript = async (id: string) => {
+    showToast(t.loadingScript);
+    const data = await getSharedScript(id);
+    if (data) {
+      // Import custom roles if any
+      if (data.customRoles && data.customRoles.length > 0) {
+        setCustomRoles(prev => {
+          const newRoles = [...prev];
+          data.customRoles!.forEach(role => {
+            if (!newRoles.find(r => r.id === role.id)) {
+              newRoles.push(role);
+            }
+          });
+          return newRoles;
+        });
+      }
+
+      // Add to custom scripts
+      const newScript: CustomScript = {
+        id: `shared-${Date.now()}`,
+        name: data.name,
+        roleIds: data.roleIds
+      };
+      
+      setCustomScripts(prev => [...prev, newScript]);
+      setEditionFilter(newScript.id);
+      setActiveScript(newScript.roleIds);
+      setAppView('script');
+      showToast(t.saveScript);
+    } else {
+      showToast(t.scriptNotFound, 'error');
+    }
+  };
+
+  const handleShareScript = async (script: CustomScript) => {
+    setIsSharing(true);
+    try {
+      // Find any custom roles used in this script
+      const scriptCustomRoles = customRoles.filter(r => script.roleIds.includes(r.id));
+      
+      const scriptId = await shareScript({
+        name: script.name,
+        roleIds: script.roleIds,
+        customRoles: scriptCustomRoles
+      });
+
+      if (scriptId) {
+        const shareUrl = `${window.location.origin}${window.location.pathname}?script=${scriptId}`;
+        await navigator.clipboard.writeText(shareUrl);
+        showToast(t.linkCopied);
+      }
+    } catch (err) {
+      showToast('Error sharing script', 'error');
+    } finally {
+      setIsSharing(false);
+    }
+  };
 
   const [aiTip, setAiTip] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -96,6 +220,17 @@ export default function App() {
 
   // Load from localStorage on mount
   useEffect(() => {
+    testConnection();
+    
+    // Check for shared script in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedScriptId = urlParams.get('script');
+    if (sharedScriptId) {
+      loadSharedScript(sharedScriptId);
+      // Clean up URL without reload
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     const saved = localStorage.getItem('botc-session');
     if (saved) {
       try {
@@ -303,7 +438,18 @@ export default function App() {
     }
     
     const order = { townsfolk: 0, outsider: 1, minion: 2, demon: 3, traveler: 4, fabled: 5 };
-    return [...roles].sort((a, b) => {
+    
+    // Ensure uniqueness by ID
+    const uniqueRoles: Role[] = [];
+    const seenIds = new Set<string>();
+    for (const role of roles) {
+      if (!seenIds.has(role.id)) {
+        uniqueRoles.push(role);
+        seenIds.add(role.id);
+      }
+    }
+
+    return [...uniqueRoles].sort((a, b) => {
       const typeDiff = (order[a.type as keyof typeof order] || 99) - (order[b.type as keyof typeof order] || 99);
       if (typeDiff !== 0) return typeDiff;
       const nameA = language === 'es' ? (a.nameEs || a.name) : a.name;
@@ -364,8 +510,8 @@ export default function App() {
   };
 
   const typeColors = {
-    townsfolk: 'text-blue-400 border-blue-400/30 bg-blue-400/10',
-    outsider: 'text-blue-200 border-blue-200/30 bg-blue-200/10',
+    townsfolk: 'text-blue-500 border-blue-500/30 bg-blue-500/10',
+    outsider: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
     minion: 'text-red-400 border-red-400/30 bg-red-400/10',
     demon: 'text-red-600 border-red-600/30 bg-red-600/10',
     traveler: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
@@ -449,16 +595,16 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0502] text-[#e0d8d0] font-sans selection:bg-red-900 selection:text-white flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-[#0a0502] text-[#e0d8d0] font-sans selection:bg-amber-900 selection:text-white flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-white/10 p-4 backdrop-blur-md z-50 flex justify-between items-center bg-[#0a0502]/80 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-900/40 border border-red-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(153,27,27,0.4)]">
-            <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-red-100" />
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-amber-900/40 border border-amber-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.4)]">
+            <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-amber-100" />
           </div>
           <div>
             <h1 className="text-sm sm:text-base font-bold tracking-tight leading-none">{t.grimoireManager}</h1>
-            <div className="text-[10px] uppercase font-black text-red-500/80 mt-1">
+            <div className="text-[10px] uppercase font-black text-amber-500/80 mt-1">
               {appView === 'setup' ? t.step1 : appView === 'script' ? t.step2 : t.step3}
             </div>
           </div>
@@ -467,13 +613,13 @@ export default function App() {
           <div className="flex bg-white/5 rounded-lg p-0.5 border border-white/5 mr-2">
             <button 
               onClick={() => setLanguage('en')}
-              className={`px-2 py-1 text-[10px] font-black rounded-md transition-all ${language === 'en' ? 'bg-red-900 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-2 py-1 text-[10px] font-black rounded-md transition-all ${language === 'en' ? 'bg-amber-900 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
             >
               EN
             </button>
             <button 
               onClick={() => setLanguage('es')}
-              className={`px-2 py-1 text-[10px] font-black rounded-md transition-all ${language === 'es' ? 'bg-red-900 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-2 py-1 text-[10px] font-black rounded-md transition-all ${language === 'es' ? 'bg-amber-900 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
             >
               ES
             </button>
@@ -485,21 +631,14 @@ export default function App() {
                 className={`p-2 hover:bg-white/5 rounded-lg transition-all border ${privacyMode ? 'bg-amber-900/40 border-amber-500/50 text-amber-400' : 'border-white/5 text-white/40'}`}
                 title={language === 'es' ? 'Modo Privacidad' : 'Privacy Mode'}
               >
-                <Lock className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={() => setIsGrimoireVisible(!isGrimoireVisible)}
-                className="p-2 hover:bg-white/5 rounded-lg transition-colors border border-white/5"
-                title="Toggle Secrets Visibility"
-              >
-                {isGrimoireVisible ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5 opacity-50" />}
+                <Eye className="w-5 h-5" />
               </button>
             </div>
           )}
           {appView === 'play' && (
             <button 
               onClick={handleAiAdvice}
-              className="p-2 hover:bg-blue-900/20 rounded-lg transition-all border border-blue-500/30 text-blue-400 animate-pulse-slow"
+              className="p-2 hover:bg-amber-900/20 rounded-lg transition-all border border-amber-500/30 text-amber-400 animate-pulse-slow"
               title="Storyteller Assistant"
             >
               <Sparkles className="w-5 h-5" />
@@ -507,7 +646,7 @@ export default function App() {
           )}
           <button 
             onClick={resetGame}
-            className="p-2 hover:bg-red-900/20 rounded-lg transition-colors border border-red-900/20 text-red-400"
+            className="p-2 hover:bg-stone-900/20 rounded-lg transition-colors border border-stone-900/20 text-stone-400"
             title="Reset All"
           >
             <RotateCcw className="w-5 h-5" />
@@ -533,16 +672,16 @@ export default function App() {
 
               <div className="space-y-6">
                 <div className="p-6 bg-[#1a0f0a] border border-white/5 rounded-3xl shadow-xl">
-                  <label className="text-[10px] uppercase font-black tracking-widest text-red-500 mb-3 block">{t.playerList}</label>
+                  <label className="text-[10px] uppercase font-black tracking-widest text-amber-500 mb-3 block">{t.playerList}</label>
                   <textarea
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder={t.pasteNames}
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-red-500/50 transition-all resize-none h-40 font-medium"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all resize-none h-40 font-medium"
                   />
                   <button 
                     onClick={addPlayer}
-                    className="w-full mt-4 py-4 bg-red-900/40 hover:bg-red-800/50 text-red-100 rounded-2xl transition-all border border-red-500/30 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest"
+                    className="w-full mt-4 py-4 bg-amber-900/40 hover:bg-amber-800/50 text-amber-100 rounded-2xl transition-all border border-amber-500/30 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest"
                   >
                     <Plus className="w-5 h-5" /> {t.addToCircle}
                   </button>
@@ -565,7 +704,7 @@ export default function App() {
                         </div>
                         <button 
                           onClick={() => removePlayer(player.id)}
-                          className="p-2 hover:bg-red-900/40 rounded-lg text-red-400 transition-colors"
+                          className="p-2 hover:bg-stone-900/40 rounded-lg text-stone-400 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -589,7 +728,7 @@ export default function App() {
                   {t.continueToScript} <ChevronRight className="w-5 h-5" />
                 </button>
                 {players.length < 5 && players.length > 0 && (
-                   <p className="text-center text-red-500/60 text-[10px] uppercase font-black mt-3 tracking-widest">{t.atLeast5}</p>
+                   <p className="text-center text-amber-500/60 text-[10px] uppercase font-black mt-3 tracking-widest">{t.atLeast5}</p>
                 )}
               </div>
             </motion.div>
@@ -624,7 +763,7 @@ export default function App() {
                     <select
                       value={editionFilter}
                       onChange={(e) => handleEditionFilter(e.target.value)}
-                      className="w-full appearance-none bg-[#1a0f0a] border border-white/10 rounded-2xl p-5 text-lg font-bold focus:outline-none focus:border-blue-500/50 shadow-xl cursor-pointer"
+                      className="w-full appearance-none bg-[#1a0f0a] border border-white/10 rounded-2xl p-5 text-lg font-bold focus:outline-none focus:border-amber-500/50 shadow-xl cursor-pointer"
                     >
                       <optgroup label={t.officialScripts}>
                         <option value="trouble_brewing">{t.troubleBrewing}</option>
@@ -650,7 +789,7 @@ export default function App() {
                     <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">{t.myCustomScripts}</label>
                     <div className="grid grid-cols-1 gap-2">
                       {customScripts.map(s => (
-                        <div key={s.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${editionFilter === s.id ? 'bg-blue-900/20 border-blue-500/50' : 'bg-black/20 border-white/5'}`}>
+                        <div key={s.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${editionFilter === s.id ? 'bg-amber-900/20 border-amber-500/50' : 'bg-black/20 border-white/5'}`}>
                           <button 
                             onClick={() => handleEditionFilter(s.id)}
                             className="flex-1 text-left font-bold text-sm"
@@ -659,15 +798,23 @@ export default function App() {
                           </button>
                           <div className="flex gap-1">
                             <button 
+                              onClick={() => handleShareScript(s)} 
+                              disabled={isSharing}
+                              className="p-2 hover:bg-white/5 rounded-lg text-amber-100/60 hover:text-amber-100"
+                              title={t.share}
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </button>
+                            <button 
                               onClick={() => editScript(s.id)} 
-                              className="p-2 hover:bg-white/5 rounded-lg text-blue-400"
+                              className="p-2 hover:bg-white/5 rounded-lg text-amber-400"
                               title={t.edit}
                             >
                               <Edit className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => deleteScript(s.id)} 
-                              className="p-2 hover:bg-white/5 rounded-lg text-red-500"
+                              className="p-2 hover:bg-white/5 rounded-lg text-amber-500"
                               title={t.delete}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -682,18 +829,18 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <button 
                     onClick={() => setIsScriptBuilderOpen(true)}
-                    className="p-6 bg-blue-900/20 hover:bg-blue-800/30 text-blue-100 rounded-3xl transition-all border border-blue-500/30 flex flex-col items-center gap-3 text-center group"
+                    className="p-6 bg-amber-900/20 hover:bg-amber-800/30 text-amber-100 rounded-3xl transition-all border border-amber-500/30 flex flex-col items-center gap-3 text-center group"
                   >
-                    <div className="p-3 bg-blue-500/20 rounded-full group-hover:scale-110 transition-transform">
+                    <div className="p-3 bg-amber-500/20 rounded-full group-hover:scale-110 transition-transform">
                       <LayoutGrid className="w-6 h-6" />
                     </div>
                     <span className="text-sm font-bold uppercase tracking-wider">{t.buildScript}</span>
                   </button>
                   <button 
                     onClick={() => setIsAddRoleModalOpen(true)}
-                    className="p-6 bg-red-900/20 hover:bg-red-800/30 text-red-100 rounded-3xl transition-all border border-red-500/30 flex flex-col items-center gap-3 text-center group"
+                    className="p-6 bg-stone-900/20 hover:bg-stone-800/30 text-stone-100 rounded-3xl transition-all border border-stone-500/30 flex flex-col items-center gap-3 text-center group"
                   >
-                    <div className="p-3 bg-red-500/20 rounded-full group-hover:scale-110 transition-transform">
+                    <div className="p-3 bg-stone-500/20 rounded-full group-hover:scale-110 transition-transform">
                       <Plus className="w-6 h-6" />
                     </div>
                     <span className="text-sm font-bold uppercase tracking-wider">{t.customRole}</span>
@@ -714,17 +861,17 @@ export default function App() {
                           <>
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 bg-blue-400 rounded-full shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
+                                <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
                                 <span className="text-[10px] font-bold uppercase tracking-widest">{t.townsfolk}</span>
                               </div>
-                              <span className="text-xs font-black text-blue-400">{dist.t}</span>
+                              <span className="text-xs font-black text-blue-500">{dist.t}</span>
                             </div>
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 bg-blue-200 rounded-full shadow-[0_0_8px_rgba(191,219,254,0.5)]" />
+                                <div className="w-2 h-2 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.5)]" />
                                 <span className="text-[10px] font-bold uppercase tracking-widest">{t.outsider}</span>
                               </div>
-                              <span className="text-xs font-black text-blue-200">{dist.o}</span>
+                              <span className="text-xs font-black text-cyan-400">{dist.o}</span>
                             </div>
                             <div className="p-3 bg-black/40 rounded-xl flex items-center justify-between">
                               <div className="flex items-center gap-3">
@@ -750,7 +897,7 @@ export default function App() {
               <div className="mt-12">
                 <button
                   onClick={() => setAppView('play')}
-                  className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-red-950/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
+                  className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-950/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
                 >
                   {t.enterGrimoire} <Layers className="w-5 h-5" />
                 </button>
@@ -769,67 +916,7 @@ export default function App() {
             >
               <div className="absolute inset-0 opacity-5 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
               
-              {/* Simplified Character List Sidebar (Desktop) */}
-              <div className="absolute left-6 top-6 bottom-32 w-56 hidden lg:flex flex-col gap-4 z-30">
-                <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-6 flex flex-col h-full overflow-hidden shadow-2xl">
-                  <div className="shrink-0 mb-4">
-                    <h3 className="text-[10px] uppercase font-black text-red-500 tracking-[0.3em] flex items-center gap-2">
-                       <Sparkles className="w-3 h-3" /> {t.characters}
-                    </h3>
-                    <p className="text-[9px] text-[#8e9299] mt-1 leading-tight font-medium">{t.dragToAssign}</p>
-                  </div>
-                  
-                  <div className="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2 space-y-6">
-                    {(() => {
-                      const roles = getActiveRoles();
-                      return ['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled'].map(type => {
-                        const rolesOfType = roles.filter(r => r.type === type);
-                        if (rolesOfType.length === 0) return null;
-                        return (
-                          <div key={type} className="space-y-2">
-                            <div className={`px-2 py-1 rounded-lg bg-black/40 border-l-2 mb-2 ${typeColors[type as keyof typeof typeColors].split(' ').slice(0, 2).join(' ')}`}>
-                              <span className="text-[8px] uppercase font-black tracking-[0.2em] opacity-80">
-                                {language === 'es' ? (t[type as keyof typeof t] || type) : type}
-                              </span>
-                            </div>
-                            <div className="space-y-1.5">
-                               {rolesOfType.map(role => (
-                                <motion.div
-                                  key={role.id}
-                                  onTap={() => {
-                                    if (!isDraggingCharacter) {
-                                      setInspectedRole(role);
-                                    }
-                                  }}
-                                  drag
-                                  dragSnapToOrigin
-                                  onDragStart={() => setIsDraggingCharacter(true)}
-                                  onDragEnd={(_, info) => {
-                                    setIsDraggingCharacter(false);
-                                    handleCharacterDrop(info.point, role.id);
-                                  }}
-                                  dragTransition={{ bounceStiffness: 600, bounceDamping: 20 }}
-                                  whileDrag={{ scale: 1.1, zIndex: 50, pointerEvents: 'none' }}
-                                  className={`p-2.5 rounded-xl border border-white/5 cursor-grab active:cursor-grabbing group hover:border-white/20 transition-all ${typeColors[role.type as keyof typeof typeColors].split(' ').slice(2).join(' ')}`}
-                                >
-                                   <div className="flex items-center gap-2.5 pointer-events-none">
-                                      <div className={`w-1.5 h-1.5 rounded-full ${typeColors[role.type as keyof typeof typeColors].split(' ')[0]}`} />
-                                      <div className="text-[10px] font-bold text-white group-hover:text-red-400 transition-colors truncate">
-                                        {language === 'es' ? (role.nameEs || role.name) : role.name}
-                                      </div>
-                                   </div>
-                                </motion.div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-1 flex flex-col items-center lg:justify-center p-4 sm:p-12 overflow-y-auto lg:overflow-hidden">
+              <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-12 overflow-y-auto lg:overflow-hidden transition-all duration-500 ease-in-out">
                 <div className="relative aspect-square w-full max-w-[min(45vh,85vw)] lg:max-w-[min(85vh,90vw)] shrink-0">
                   {/* Circular Table Track */}
                   <div className="absolute inset-0 border border-white/5 rounded-full flex items-center justify-center">
@@ -878,7 +965,7 @@ export default function App() {
                            data-player-id={player.id}
                            className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
                             selectedPlayerId === player.id 
-                              ? 'ring-4 ring-red-500/20 scale-110 z-20 bg-[#1a0f0a]' 
+                              ? 'ring-4 ring-amber-500/20 scale-110 z-20 bg-[#1a0f0a]' 
                               : 'bg-[#0a0502]/80 hover:border-white/20'
                            } ${
                             player.marking === 'confirmed' 
@@ -886,38 +973,32 @@ export default function App() {
                               : player.marking === 'possible' 
                                 ? 'border-orange-500' 
                                 : selectedPlayerId === player.id 
-                                  ? 'border-red-500' 
+                                  ? 'border-amber-500' 
                                   : 'border-[#3d2b1f]'
                            }`}
                         >
                           {player.isDead && (
                             <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
-                              <div className="rotate-12 border border-red-900 text-red-900 font-black px-1 text-[8px] sm:text-xs uppercase">{t.executed}</div>
+                              <div className="rotate-12 border border-stone-800 text-stone-800 font-black px-1 text-[8px] sm:text-xs uppercase">{t.executed}</div>
                             </div>
                           )}
 
                           <div className="flex-1 flex items-center justify-center">
-                            {role && isGrimoireVisible && !privacyMode ? (
-                               <div className={`text-center ${typeColors[role.type].split(' ')[0]}`}>
-                                  <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-tighter opacity-70 leading-none">
-                                    {language === 'es' ? (t[role.type as keyof typeof t] || role.type) : role.type}
-                                  </span>
-                               </div>
-                            ) : (
+                            {!role || !isGrimoireVisible || privacyMode ? (
                               <HelpCircle className="w-6 h-6 sm:w-8 sm:h-8 opacity-20" />
-                            )}
+                            ) : null}
                           </div>
 
-                          <div className="w-full bg-black/60 p-1 border-t border-white/10 text-center">
-                            <span className={`text-[9px] sm:text-[10px] font-medium truncate px-1 block ${player.isDead ? 'opacity-30' : ''}`}>
+                          <div className="w-full bg-[#1a0f0a]/60 py-1 border-t border-white/5 text-center mt-auto">
+                            <span className={`text-[8px] sm:text-[10px] font-bold tracking-tight truncate px-1 block ${player.isDead ? 'opacity-30 text-white/50' : 'text-white/80'}`}>
                               {player.name}
                             </span>
                           </div>
 
                           {role && isGrimoireVisible && !privacyMode && (
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[10%] w-full px-1 text-center pointer-events-none">
-                               <div className={`text-[8px] sm:text-[10px] font-bold uppercase truncate tracking-tight ${typeColors[role.type].split(' ')[0]}`}>
-                                 {language === 'es' ? (role.nameEs || role.name) : role.name}
+                            <div className="absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-1 text-center pointer-events-none flex flex-col items-center justify-center min-h-[40%]">
+                               <div className={`text-[9px] sm:text-[12px] font-black uppercase tracking-tighter leading-[0.85] sm:leading-[0.9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] ${typeColors[role.type].split(' ')[0]}`}>
+                                 {formatRoleName(language === 'es' ? (role.nameEs || role.name) : role.name)}
                                </div>
                             </div>
                           )}
@@ -925,13 +1006,13 @@ export default function App() {
                         
                         <div className="absolute -top-1 sm:-top-2 flex gap-1">
                           {player.isDead && (
-                            <div className="bg-red-950 p-1 rounded-full border border-red-500/50 shadow-lg">
-                              <Skull className="w-2.5 h-2.5 sm:w-3 h-3 text-red-500" />
+                            <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
+                              <Skull className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
                           )}
                           {!isGrimoireVisible && player.roleId && (
-                            <div className="bg-blue-950 p-1 rounded-full border border-blue-500/50 shadow-lg">
-                              <Shield className="w-2.5 h-2.5 sm:w-3 h-3 text-blue-500" />
+                            <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
+                              <Shield className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
                           )}
                           {player.notes && (
@@ -962,12 +1043,12 @@ export default function App() {
                           return (
                             <>
                               <div className="flex flex-col items-center">
-                                 <span className="text-blue-400 font-black text-sm">{dist.t}</span>
-                                 <span className="text-[7px] uppercase font-bold text-blue-400/40">{language === 'es' ? 'P' : 'T'}</span>
+                                 <span className="text-blue-500 font-black text-sm">{dist.t}</span>
+                                 <span className="text-[7px] uppercase font-bold text-blue-500/40">{language === 'es' ? 'P' : 'T'}</span>
                               </div>
                               <div className="flex flex-col items-center">
-                                 <span className="text-blue-200 font-black text-sm">{dist.o}</span>
-                                 <span className="text-[7px] uppercase font-bold text-blue-200/40">{language === 'es' ? 'F' : 'O'}</span>
+                                 <span className="text-cyan-400 font-black text-sm">{dist.o}</span>
+                                 <span className="text-[7px] uppercase font-bold text-cyan-400/40">{language === 'es' ? 'F' : 'O'}</span>
                               </div>
                               <div className="flex flex-col items-center">
                                  <span className="text-red-400 font-black text-sm">{dist.m}</span>
@@ -988,7 +1069,7 @@ export default function App() {
               </div>
 
                 {/* Simplified Character List (Mobile) */}
-                <div className="lg:hidden w-full px-4 z-30 bg-[#0a0502]/80 backdrop-blur-md border-t border-white/5 shrink-0">
+                <div className="w-full px-4 z-30 bg-[#0a0502]/80 backdrop-blur-md border-t border-white/5 shrink-0">
                    <button 
                      onClick={() => setIsCharacterListCollapsed(!isCharacterListCollapsed)}
                      className="w-full flex items-center justify-between py-3 text-[9px] uppercase font-black tracking-widest text-[#8e9299]"
@@ -1058,21 +1139,21 @@ export default function App() {
                    </AnimatePresence>
                 </div>
 
-              {/* Bottom Nav */}
-              <div className="p-4 border-t border-white/10 flex gap-2 bg-[#0a0502]/80 backdrop-blur-sm z-40">
-                <button 
-                  onClick={() => setAppView('setup')}
-                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                >
-                  <Users className="w-4 h-4" /> {t.editPlayers}
-                </button>
-                <button 
-                  onClick={() => setAppView('script')}
-                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                >
-                  <Layers className="w-4 h-4" /> {t.changeScript}
-                </button>
-              </div>
+                {/* Bottom Nav */}
+                <div className="p-4 border-t border-white/10 flex gap-2 bg-[#0a0502]/80 backdrop-blur-sm z-40">
+                  <button 
+                    onClick={() => setAppView('setup')}
+                    className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                  >
+                    <Users className="w-4 h-4" /> {t.editPlayers}
+                  </button>
+                  <button 
+                    onClick={() => setAppView('script')}
+                    className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                  >
+                    <Layers className="w-4 h-4" /> {t.changeScript}
+                  </button>
+                </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1099,15 +1180,15 @@ export default function App() {
                 <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/20 shrink-0">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center ${
-                      players.find(p => p.id === selectedPlayerId)?.isDead ? 'border-gray-700 bg-gray-900' : 'border-red-900 bg-red-950/40'
+                      players.find(p => p.id === selectedPlayerId)?.isDead ? 'border-stone-700 bg-stone-900' : 'border-amber-900 bg-amber-950/40'
                     }`}>
-                      {players.find(p => p.id === selectedPlayerId)?.isDead ? <Skull className="w-6 h-6 text-gray-500" /> : <Users className="w-6 h-6 text-red-500" />}
+                      {players.find(p => p.id === selectedPlayerId)?.isDead ? <Skull className="w-6 h-6 text-stone-500" /> : <Users className="w-6 h-6 text-amber-500" />}
                     </div>
                     <div>
                       <h2 className="text-xl font-bold text-white leading-none mb-1">
                         {players.find(p => p.id === selectedPlayerId)?.name}
                       </h2>
-                      <p className="text-[10px] uppercase font-black text-red-500 tracking-[0.2em]">{t.gameActions}</p>
+                      <p className="text-[10px] uppercase font-black text-amber-500 tracking-[0.2em]">{t.gameActions}</p>
                     </div>
                   </div>
                   <button 
@@ -1125,7 +1206,7 @@ export default function App() {
                         onClick={() => toggleDead(selectedPlayerId)}
                         className={`py-4 rounded-2xl text-xs font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-3 ${
                           players.find(p => p.id === selectedPlayerId)?.isDead 
-                            ? 'bg-red-900 border-red-500 text-white shadow-lg shadow-red-900/40' 
+                            ? 'bg-amber-900 border-amber-500 text-white shadow-lg shadow-amber-900/40' 
                             : 'bg-black/40 border-white/10 text-[#8e9299]'
                         }`}
                       >
@@ -1146,7 +1227,7 @@ export default function App() {
                         value={players.find(p => p.id === selectedPlayerId)?.notes || ''}
                         onChange={(e) => updateNotes(selectedPlayerId, e.target.value)}
                         placeholder={t.addNotes}
-                        className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-red-500/50 transition-all resize-none h-24 italic"
+                        className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all resize-none h-24 italic"
                       />
                    </div>
 
@@ -1154,7 +1235,7 @@ export default function App() {
                    <div className="space-y-4">
                       <div className="flex justify-between items-end px-1">
                         <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299]">{t.assignCharacter}</label>
-                        <div className="flex gap-2">
+                       <div className="flex gap-2">
                            {(['all', 'townsfolk', 'outsider', 'minion', 'demon'] as const).map(type => (
                              <button 
                                 key={type}
@@ -1176,7 +1257,7 @@ export default function App() {
                           placeholder={t.searchCharacters}
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
-                          className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-10 pr-3 text-sm focus:outline-none focus:border-red-500/50"
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-10 pr-3 text-sm focus:outline-none focus:border-amber-500/50"
                         />
                       </div>
 
@@ -1242,7 +1323,7 @@ export default function App() {
               <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/20 shrink-0">
                 <div>
                   <h2 className="text-xl font-bold text-white mb-1">{t.scriptBuilder}</h2>
-                  <p className="text-[10px] uppercase font-black text-blue-500 tracking-widest">{t.customEditionConfig}</p>
+                  <p className="text-[10px] uppercase font-black text-amber-500 tracking-widest">{t.customEditionConfig}</p>
                 </div>
                 <button onClick={() => setIsScriptBuilderOpen(false)} className="p-2 hover:bg-white/5 rounded-full"><X className="w-5 h-5" /></button>
               </div>
@@ -1257,7 +1338,7 @@ export default function App() {
                         value={builderTitle}
                         onChange={(e) => setBuilderTitle(e.target.value)}
                         placeholder={t.scriptPlaceholder}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-blue-500/50"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-amber-500/50"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1269,7 +1350,7 @@ export default function App() {
                             value={builderSearch}
                             onChange={(e) => setBuilderSearch(e.target.value)}
                             placeholder={t.filterPool}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500/50"
+                            className="w-full bg-black/40 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-sm focus:outline-none focus:border-amber-500/50"
                           />
                        </div>
                     </div>
@@ -1316,15 +1397,15 @@ export default function App() {
                     
                     return matchesSearch && matchesTab;
                   }).map(role => (
-                    <button
-                      key={role.id}
-                      onClick={() => toggleRoleInBuilder(role.id)}
-                      className={`p-4 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
-                        builderRoleIds.includes(role.id) 
-                          ? 'bg-blue-900/20 border-blue-500 text-blue-100' 
-                          : 'bg-black/20 border-white/5 hover:border-white/10'
-                      }`}
-                    >
+                      <button
+                        key={role.id}
+                        onClick={() => toggleRoleInBuilder(role.id)}
+                        className={`p-4 rounded-2xl border text-left transition-all flex flex-col gap-1 ${
+                          builderRoleIds.includes(role.id) 
+                            ? typeColors[role.type as keyof typeof typeColors]
+                            : 'bg-black/20 border-white/5 hover:border-white/10'
+                        }`}
+                      >
                       <div className="flex justify-between items-center">
                         <span className="font-bold text-sm">
                           {language === 'es' ? (role.nameEs || role.name) : role.name}
@@ -1345,7 +1426,7 @@ export default function App() {
                    <button 
                      onClick={saveScript}
                      disabled={!builderTitle || builderRoleIds.length === 0}
-                     className="px-8 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase tracking-widest disabled:opacity-30 shadow-lg shadow-blue-900/20"
+                     className="px-8 py-3 bg-amber-600 text-white rounded-xl font-bold uppercase tracking-widest disabled:opacity-30 shadow-lg shadow-amber-900/20"
                    >
                      {t.saveScript}
                    </button>
@@ -1372,7 +1453,7 @@ export default function App() {
             >
               <div>
                 <h2 className="text-2xl font-bold text-white mb-1">{t.createCustomRole}</h2>
-                <p className="text-[10px] uppercase font-black text-red-500 tracking-widest">{t.experimentalPool}</p>
+                <p className="text-[10px] uppercase font-black text-amber-500 tracking-widest">{t.experimentalPool}</p>
               </div>
 
               <div className="space-y-4">
@@ -1383,19 +1464,19 @@ export default function App() {
                     value={newRole.name}
                     onChange={(e) => setNewRole({...newRole, name: e.target.value})}
                     placeholder={t.characterPlaceholder}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-red-500/50"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-amber-500/50"
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase font-black text-[#8e9299]">{t.roleType}</label>
                   <div className="grid grid-cols-2 gap-2">
                     {(['townsfolk', 'outsider', 'minion', 'demon', 'traveler', 'fabled'] as const).map(type => (
-                      <button
+                       <button
                         key={type}
                         onClick={() => setNewRole({...newRole, type})}
                         className={`py-3 rounded-xl border text-[10px] uppercase font-black transition-all ${
                           newRole.type === type 
-                            ? 'bg-red-900/20 border-red-500 text-red-100' 
+                            ? 'bg-amber-900/20 border-amber-500 text-amber-100' 
                             : 'bg-black/20 border-white/5 text-[#8e9299]'
                         }`}
                       >
@@ -1410,14 +1491,14 @@ export default function App() {
                     value={newRole.ability}
                     onChange={(e) => setNewRole({...newRole, ability: e.target.value})}
                     placeholder={t.abilityPlaceholder}
-                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm h-32 focus:outline-none focus:border-red-500/50 resize-none"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-sm h-32 focus:outline-none focus:border-amber-500/50 resize-none"
                   />
                 </div>
               </div>
 
               <button 
                 onClick={addManualRole}
-                className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-red-950/30 active:scale-95 transition-all"
+                className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-amber-950/30 active:scale-95 transition-all"
               >
                 {t.summonCharacter}
               </button>
@@ -1466,7 +1547,7 @@ export default function App() {
 
                 <div className="space-y-6">
                   <div className="p-5 bg-black/40 rounded-2xl border border-white/5">
-                    <label className="text-[9px] uppercase font-black tracking-widest text-red-500/80 mb-3 block">
+                    <label className="text-[9px] uppercase font-black tracking-widest text-amber-500/80 mb-3 block">
                       {t.abilityDescription}
                     </label>
                     <p className="text-sm text-white/90 leading-relaxed font-medium">
@@ -1498,46 +1579,65 @@ export default function App() {
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
-                className="relative w-full max-w-xl bg-blue-950/95 border border-blue-500/30 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto overflow-hidden"
+                className="relative w-full max-w-xl bg-neutral-950/95 border border-neutral-500/30 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto overflow-hidden"
               >
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent" />
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neutral-500 to-transparent" />
                 
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h2 className="text-xl font-bold text-blue-100 flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-blue-400" />
+                    <h2 className="text-xl font-bold text-neutral-100 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-neutral-400" />
                       {t.oracleAssistant}
                     </h2>
-                    <p className="text-[10px] uppercase font-black text-blue-400 tracking-[0.2em] mt-1">{t.experimentalAdvice}</p>
+                    <p className="text-[10px] uppercase font-black text-neutral-400 tracking-[0.2em] mt-1">{t.experimentalAdvice}</p>
                   </div>
                   <button 
                     onClick={() => setIsAiDrawerOpen(false)}
-                    className="p-2 hover:bg-white/5 rounded-full text-blue-200"
+                    className="p-2 hover:bg-white/5 rounded-full text-neutral-200"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
-                <div className="min-h-[100px] flex items-center justify-center p-6 bg-black/40 rounded-2xl border border-blue-500/10">
+                <div className="min-h-[100px] flex items-center justify-center p-6 bg-black/40 rounded-2xl border border-neutral-500/10">
                   {isAiLoading ? (
                     <div className="flex flex-col items-center gap-3">
-                      <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-                      <span className="text-xs font-bold text-blue-300 uppercase tracking-widest animate-pulse">{t.consultingMadness}</span>
+                      <Loader2 className="w-8 h-8 text-neutral-400 animate-spin" />
+                      <span className="text-xs font-bold text-neutral-300 uppercase tracking-widest animate-pulse">{t.consultingMadness}</span>
                     </div>
                   ) : (
-                    <p className="text-sm text-blue-50/90 leading-relaxed italic text-center">
+                    <p className="text-sm text-neutral-50/90 leading-relaxed italic text-center">
                       "{aiTip}"
                     </p>
                   )}
                 </div>
 
                 <div className="mt-6 text-center">
-                  <p className="text-[10px] text-blue-300/40 uppercase font-bold tracking-widest">
+                  <p className="text-[10px] text-neutral-300/40 uppercase font-bold tracking-widest">
                     {t.poweredBy}
                   </p>
                 </div>
               </motion.div>
             </div>
+          )}
+        </AnimatePresence>
+        
+        {/* Toast Notification */}
+        <AnimatePresence>
+          {toast && (
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-white text-black rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-xl border border-white/20"
+            >
+              {toast.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+              ) : (
+                <X className="w-5 h-5 text-red-600" />
+              )}
+              <span className="text-sm font-bold tracking-tight">{toast.message}</span>
+            </motion.div>
           )}
         </AnimatePresence>
       </AnimatePresence>

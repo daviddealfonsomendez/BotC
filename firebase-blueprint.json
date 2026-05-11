@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "SharedScript": {
+      "title": "Shared Script",
+      "description": "A script shared by a user containing a list of roles and optional custom role definitions.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "roleIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "customRoles": {
+          "type": "array",
+          "items": { "$ref": "#/entities/SharedRole" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "roleIds"]
+    },
+    "SharedRole": {
+      "title": "Shared Role",
+      "description": "A custom role definition included in a shared script.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "nameEs": { "type": "string" },
+        "type": { "enum": ["townsfolk", "outsider", "minion", "demon", "traveler", "fabled"] },
+        "ability": { "type": "string" },
+        "abilityEs": { "type": "string" },
+        "edition": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "ability", "edition"]
+    }
+  },
+  "firestore": {
+    "sharedScripts/{scriptId}": {
+      "schema": "SharedScript",
+      "description": "Collection of scripts shared via generated links."
+    }
+  }
+}
