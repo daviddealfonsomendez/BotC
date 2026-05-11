@@ -6,7 +6,7 @@ import {
   Info, 
   RotateCcw, 
   ChevronRight, 
-  Crown, 
+  Clock, 
   Skull, 
   Shield, 
   HelpCircle,
@@ -28,11 +28,13 @@ import {
   Edit,
   Share2,
   Copy,
-  CheckCircle2
+  CheckCircle2,
+  Zap,
+  BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Role, RoleType, EditionType, ALL_ROLES } from './data/roles';
-import { getStorytellerAdvice } from './services/ai';
+import { askGrimoireAssistant } from './services/ai';
 import { UI_TRANSLATIONS, Language } from './data/translations';
 import { shareScript, getSharedScript, testConnection } from './lib/firebase';
 
@@ -43,6 +45,7 @@ interface Player {
   isDead: boolean;
   notes: string;
   marking?: 'possible' | 'confirmed' | 'none';
+  abilityType?: 'info' | 'action' | 'none';
 }
 
 type AppView = 'setup' | 'script' | 'play';
@@ -214,9 +217,17 @@ export default function App() {
     }
   };
 
-  const [aiTip, setAiTip] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant', content: string }[]>([]);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [aiMessages]);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -319,6 +330,10 @@ export default function App() {
 
   const updateNotes = (id: string, notes: string) => {
     setPlayers(players.map(p => p.id === id ? { ...p, notes } : p));
+  };
+
+  const updateAbilityType = (id: string, abilityType: 'info' | 'action' | 'none') => {
+    setPlayers(players.map(p => p.id === id ? { ...p, abilityType } : p));
   };
 
   const saveScript = () => {
@@ -493,20 +508,38 @@ export default function App() {
     }
   };
 
-  const handleAiAdvice = async () => {
+  const handleAiAssistant = async () => {
+    if (!aiQuestion.trim()) return;
+    
+    const userMessage = aiQuestion.trim();
+    setAiMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setAiQuestion('');
     setIsAiLoading(true);
     setIsAiDrawerOpen(true);
+
     const gameState = {
       playersCount: players.length,
       currentRoles: players.map(p => ({
         role: getRoleById(p.roleId)?.name || 'Unknown',
-        type: getRoleById(p.roleId)?.type || 'Unknown',
         isDead: p.isDead
       }))
     };
-    const advice = await getStorytellerAdvice(gameState);
-    setAiTip(advice || "The spirits are silent...");
-    setIsAiLoading(false);
+
+    try {
+      const answer = await askGrimoireAssistant(userMessage, gameState, language);
+      setAiMessages(prev => [...prev, { role: 'assistant', content: answer || "The spirits are silent..." }]);
+    } catch (e) {
+      setAiMessages(prev => [...prev, { role: 'assistant', content: "Error connecting to the library." }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const openAiAssistant = () => {
+    setIsAiDrawerOpen(true);
+    if (aiMessages.length === 0) {
+      setAiMessages([{ role: 'assistant', content: t.howToHelp }]);
+    }
   };
 
   const typeColors = {
@@ -599,8 +632,14 @@ export default function App() {
       {/* Header */}
       <header className="border-b border-white/10 p-4 backdrop-blur-md z-50 flex justify-between items-center bg-[#0a0502]/80 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-amber-900/40 border border-amber-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.4)]">
-            <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-amber-100" />
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-md bg-[#1a0f0a] border-2 border-[#3d2b1f] flex items-center justify-center shadow-[inset_0_2px_10px_rgba(0,0,0,0.8),0_0_20px_rgba(245,158,11,0.15)] relative overflow-hidden group">
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-transparent" />
+            <div className="absolute inset-[15%] rounded-full border border-amber-500/30 border-dashed animate-[spin_20s_linear_infinite]" />
+            <div className="absolute top-1 left-1/2 -translate-x-1/2 w-0.5 h-1 bg-amber-500/40" />
+            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-1 bg-amber-500/40" />
+            <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-0.5 bg-amber-500/40" />
+            <div className="absolute right-1 top-1/2 -translate-y-1/2 w-1 h-0.5 bg-amber-500/40" />
+            <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 relative z-10 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
           </div>
           <div>
             <h1 className="text-sm sm:text-base font-bold tracking-tight leading-none">{t.grimoireManager}</h1>
@@ -637,9 +676,9 @@ export default function App() {
           )}
           {appView === 'play' && (
             <button 
-              onClick={handleAiAdvice}
+              onClick={openAiAssistant}
               className="p-2 hover:bg-amber-900/20 rounded-lg transition-all border border-amber-500/30 text-amber-400 animate-pulse-slow"
-              title="Storyteller Assistant"
+              title="Grimoire Assistant"
             >
               <Sparkles className="w-5 h-5" />
             </button>
@@ -1004,7 +1043,7 @@ export default function App() {
                           )}
                         </div>
                         
-                        <div className="absolute -top-1 sm:-top-2 flex gap-1">
+                        <div className="absolute -top-1 sm:-top-2 flex gap-1 z-30">
                           {player.isDead && (
                             <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
                               <Skull className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
@@ -1015,9 +1054,19 @@ export default function App() {
                               <Shield className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
                           )}
-                          {player.notes && (
+                          {!privacyMode && player.abilityType === 'info' && (
+                            <div className="bg-blue-950 p-1 rounded-full border border-blue-500/50 shadow-lg">
+                              <Search className="w-2.5 h-2.5 sm:w-3 h-3 text-blue-400" />
+                            </div>
+                          )}
+                          {!privacyMode && player.abilityType === 'action' && (
                             <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
-                              <Info className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
+                              <Zap className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-400" />
+                            </div>
+                          )}
+                          {!privacyMode && player.notes && (
+                            <div className="bg-amber-950 p-1 rounded-full border border-amber-500/50 shadow-lg">
+                              <BookOpen className="w-2.5 h-2.5 sm:w-3 h-3 text-amber-500" />
                             </div>
                           )}
                         </div>
@@ -1166,7 +1215,10 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setIsPlayerMenuOpen(false)}
+                onClick={() => {
+                  setIsPlayerMenuOpen(false);
+                  setSelectedPlayerId(null);
+                }}
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm"
               />
               <motion.div 
@@ -1192,7 +1244,10 @@ export default function App() {
                     </div>
                   </div>
                   <button 
-                    onClick={() => setIsPlayerMenuOpen(false)}
+                    onClick={() => {
+                      setIsPlayerMenuOpen(false);
+                      setSelectedPlayerId(null);
+                    }}
                     className="p-3 hover:bg-white/5 rounded-full transition-colors"
                   >
                     <X className="w-6 h-6" />
@@ -1220,8 +1275,42 @@ export default function App() {
                       </button>
                    </div>
 
+                   {/* Ability Type Selection */}
+                   <div className="space-y-3">
+                      <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">{t.abilityType}</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: 'info', label: t.infoAbility, icon: Search, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                          { id: 'action', label: t.actionAbility, icon: Zap, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+                          { id: 'none', label: t.noneAbility, icon: X, color: 'text-[#8e9299]', bg: 'bg-white/5' }
+                        ].map((type) => {
+                          const Icon = type.icon;
+                          const isSelected = players.find(p => p.id === selectedPlayerId)?.abilityType === type.id || (type.id === 'none' && !players.find(p => p.id === selectedPlayerId)?.abilityType);
+                          
+                          return (
+                            <button
+                              key={type.id}
+                              onClick={() => updateAbilityType(selectedPlayerId!, type.id as any)}
+                              className={`py-3 rounded-xl border transition-all flex flex-col items-center gap-1.5 ${
+                                isSelected
+                                  ? `border-white bg-white/10 shadow-lg`
+                                  : 'bg-black/20 border-white/5 hover:border-white/10'
+                              }`}
+                            >
+                              <Icon className={`w-4 h-4 ${isSelected ? type.color : 'text-[#8e9299]'}`} />
+                              <span className={`text-[9px] font-black uppercase tracking-wider ${
+                                isSelected ? 'text-white' : 'text-[#8e9299]'
+                              }`}>
+                                {type.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                   </div>
+
                    {/* Notes */}
-                   <div className="space-y-2">
+                   <div className="space-y-2 pb-12">
                       <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299] px-1">{t.storytellerNotes}</label>
                       <textarea
                         value={players.find(p => p.id === selectedPlayerId)?.notes || ''}
@@ -1229,72 +1318,6 @@ export default function App() {
                         placeholder={t.addNotes}
                         className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm focus:outline-none focus:border-amber-500/50 transition-all resize-none h-24 italic"
                       />
-                   </div>
-
-                   {/* Role Selector */}
-                   <div className="space-y-4">
-                      <div className="flex justify-between items-end px-1">
-                        <label className="text-[10px] uppercase font-black tracking-widest text-[#8e9299]">{t.assignCharacter}</label>
-                       <div className="flex gap-2">
-                           {(['all', 'townsfolk', 'outsider', 'minion', 'demon'] as const).map(type => (
-                             <button 
-                                key={type}
-                                onClick={() => setRoleFilter(type)}
-                                className={`text-[9px] uppercase font-black px-2 py-1 rounded-md border ${
-                                  roleFilter === type ? 'bg-white/10 border-white/30 text-white' : 'border-transparent text-[#8e9299]'
-                                }`}
-                             >
-                               {language === 'es' ? (t[type as keyof typeof t] || type) : type}
-                             </button>
-                           ))}
-                        </div>
-                      </div>
-                      
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e9299]" />
-                        <input 
-                          type="text" 
-                          placeholder={t.searchCharacters}
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-10 pr-3 text-sm focus:outline-none focus:border-amber-500/50"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-2">
-                        {filteredRoles.map(role => (
-                          <button
-                            key={role.id}
-                            onClick={() => {
-                              assignRole(selectedPlayerId, role.id);
-                              setIsPlayerMenuOpen(false);
-                            }}
-                            className={`p-4 rounded-2xl border text-left transition-all relative overflow-hidden group ${
-                              players.find(p => p.id === selectedPlayerId)?.roleId === role.id
-                                ? 'bg-white border-white text-black ring-4 ring-white/10'
-                                : 'bg-black/20 border-white/5 hover:border-white/20'
-                            }`}
-                          >
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="font-bold text-lg leading-tight">
-                                {language === 'es' ? (role.nameEs || role.name) : role.name}
-                              </span>
-                              <span className={`text-[9px] uppercase font-black px-2 py-0.5 rounded-full border ${
-                                players.find(p => p.id === selectedPlayerId)?.roleId === role.id
-                                  ? 'border-gray-300 text-gray-500'
-                                  : typeColors[role.type]
-                              }`}>
-                                {language === 'es' ? (t[role.type as keyof typeof t] || role.type) : role.type}
-                              </span>
-                            </div>
-                            <p className={`text-xs leading-relaxed ${
-                              players.find(p => p.id === selectedPlayerId)?.roleId === role.id ? 'text-black/60' : 'text-[#8e9299]'
-                            }`}>
-                              {language === 'es' ? (role.abilityEs || role.ability) : role.ability}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
                    </div>
                 </div>
               </motion.div>
@@ -1579,11 +1602,11 @@ export default function App() {
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
-                className="relative w-full max-w-xl bg-neutral-950/95 border border-neutral-500/30 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 shadow-2xl pointer-events-auto overflow-hidden"
+                className="relative w-full max-w-xl bg-neutral-950/95 border border-neutral-500/30 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 sm:p-8 shadow-2xl pointer-events-auto overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[80vh]"
               >
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neutral-500 to-transparent" />
                 
-                <div className="flex justify-between items-start mb-6">
+                <div className="flex justify-between items-start mb-6 shrink-0">
                   <div>
                     <h2 className="text-xl font-bold text-neutral-100 flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-neutral-400" />
@@ -1599,23 +1622,61 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="min-h-[100px] flex items-center justify-center p-6 bg-black/40 rounded-2xl border border-neutral-500/10">
-                  {isAiLoading ? (
-                    <div className="flex flex-col items-center gap-3">
-                      <Loader2 className="w-8 h-8 text-neutral-400 animate-spin" />
-                      <span className="text-xs font-bold text-neutral-300 uppercase tracking-widest animate-pulse">{t.consultingMadness}</span>
+                <div 
+                  ref={chatScrollRef}
+                  className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar min-h-0 mb-6"
+                >
+                  {aiMessages.map((msg, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${
+                        msg.role === 'user' 
+                          ? 'bg-amber-900/40 border border-amber-500/30 text-white rounded-br-none' 
+                          : 'bg-white/5 border border-white/10 text-neutral-200 rounded-bl-none'
+                      }`}>
+                        {msg.content}
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-sm text-neutral-50/90 leading-relaxed italic text-center">
-                      "{aiTip}"
-                    </p>
+                  ))}
+                  {isAiLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-white/5 border border-white/10 p-4 rounded-2xl rounded-bl-none flex items-center gap-3">
+                        <Loader2 className="w-4 h-4 text-neutral-400 animate-spin" />
+                        <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest animate-pulse">
+                          {t.consultingMadness}
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <div className="mt-6 text-center">
-                  <p className="text-[10px] text-neutral-300/40 uppercase font-bold tracking-widest">
-                    {t.poweredBy}
-                  </p>
+                <div className="shrink-0 space-y-4">
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder={t.askWiki}
+                      value={aiQuestion}
+                      onChange={(e) => setAiQuestion(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAiAssistant()}
+                      disabled={isAiLoading}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 pl-4 pr-14 text-sm focus:outline-none focus:border-amber-500/50 transition-all disabled:opacity-50"
+                    />
+                    <button 
+                      onClick={handleAiAssistant}
+                      disabled={isAiLoading || !aiQuestion.trim()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-amber-900 border border-amber-500/30 rounded-xl text-white disabled:opacity-50 hover:bg-amber-800 transition-all"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <div className="text-center">
+                    <p className="text-[10px] text-neutral-300/40 uppercase font-bold tracking-widest">
+                      {t.poweredBy}
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             </div>

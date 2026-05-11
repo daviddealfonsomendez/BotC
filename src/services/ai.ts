@@ -4,22 +4,29 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY as string 
 });
 
-export async function getStorytellerAdvice(gameState: any) {
+export async function askGrimoireAssistant(question: string, gameState: any, language: string) {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `You are an expert Blood on the Clocktower Storyteller. 
-      The current game state (players, roles, status) is:
-      ${JSON.stringify(gameState)}
+      contents: `You are the Grimoire Librarian, an expert in Blood on the Clocktower rules and characters.
+      A user is asking: "${question}"
       
-      Provide a brief (1-2 sentence) piece of advice for the Storyteller. 
-      Focus on balance, interesting interactions, or social dynamics based on the roles in play.
-      Keep it cryptic, fun, and helpful for the Storyteller to run a great game.`,
+      The current game context is: ${JSON.stringify(gameState)}
+      The user preferred language is: ${language === 'es' ? 'Spanish' : 'English'}.
+      
+      Use your knowledge and the provided search tool to find accurate information from the Blood on the Clocktower wiki (wiki.bloodontheclocktower.com).
+      If the question is in Spanish, search in English but answer in Spanish.
+      Provide a clear, helpful, and concise answer.`,
+      config: {
+        tools: [{ googleSearch: {} }]
+      }
     });
     
     return response.text;
   } catch (error) {
     console.error("AI Error:", error);
-    return "The spirits are silent... (Make sure your Gemini API Key is configured)";
+    return language === 'es' 
+      ? "Los espíritus están en silencio... (Asegúrate de que tu clave de API de Gemini esté configurada)"
+      : "The spirits are silent... (Make sure your Gemini API Key is configured)";
   }
 }
