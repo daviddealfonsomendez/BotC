@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Users, 
   Trash2, 
@@ -133,14 +133,14 @@ export default function App() {
     const cleanKey = name.toLowerCase().replace(/\s/g, '');
     if (splits[cleanKey]) {
       return splits[cleanKey].map((part, i) => (
-        <span key={i} className="block">{part}</span>
+        <span key={`split-${i}`} className="block">{part}</span>
       ));
     }
 
     // Generic split for names with spaces
     if (name.includes(' ')) {
       return name.split(' ').map((word, i) => (
-        <span key={i} className="block">{word}</span>
+        <span key={`word-${i}`} className="block">{word}</span>
       ));
     }
 
@@ -149,10 +149,10 @@ export default function App() {
       const mid = Math.ceil(name.length / 2);
       // Try to split at a vowel if possible or just middle
       return (
-        <>
+        <span key="long-split">
           <span className="block">{name.substring(0, mid)}</span>
           <span>{name.substring(mid)}</span>
-        </>
+        </span>
       );
     }
 
@@ -290,7 +290,7 @@ export default function App() {
     if (!newName.trim()) return;
     const names = newName.split('\n').filter(n => n.trim());
     const newPlayers: Player[] = names.map(name => ({
-      id: Math.random().toString(36).substr(2, 9),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: name.trim(),
       isDead: false,
       notes: ''
@@ -350,7 +350,7 @@ export default function App() {
       }
     } else {
       const newScript: CustomScript = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: `script-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: builderTitle,
         roleIds: builderRoleIds
       };
@@ -410,9 +410,29 @@ export default function App() {
     );
   };
 
+  const allAvailableRoles = useMemo(() => {
+    const rolesMap = new Map<string, Role>();
+    ALL_ROLES.forEach(role => {
+      rolesMap.set(role.id, role);
+    });
+    customRoles.forEach(role => {
+      if (!rolesMap.has(role.id)) {
+        rolesMap.set(role.id, role);
+      }
+    });
+    return Array.from(rolesMap.values());
+  }, [customRoles]);
+
   const addManualRole = () => {
     if (!newRole.name) return;
     const roleId = newRole.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    // Check for existing ID in allAvailableRoles or customRoles (implicitly via allAvailableRoles)
+    if (allAvailableRoles.some(r => r.id === roleId)) {
+      showToast(t.roleAlreadyExists);
+      return;
+    }
+
     const role: Role = {
       id: roleId,
       name: newRole.name,
@@ -420,12 +440,10 @@ export default function App() {
       ability: newRole.ability,
       edition: 'custom'
     };
-    setCustomRoles([...customRoles, role]);
+    setCustomRoles(prev => [...prev, role]);
     setIsAddRoleModalOpen(false);
     setNewRole({ name: '', type: 'townsfolk', ability: '' });
   };
-
-  const allAvailableRoles = [...ALL_ROLES, ...customRoles];
 
   const filteredRoles = allAvailableRoles.filter(role => {
     const matchesSearch = role.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -997,14 +1015,14 @@ export default function App() {
                         className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-move group z-10 scale-90 sm:scale-100"
                         style={{ x: 0, y: 0 }}
                       >
-                        <div 
+                         <div 
                            onPointerDown={() => handlePlayerPointerDown(player.id)}
                            onPointerUp={() => handlePlayerPointerUp(player.id)}
                            onPointerLeave={handlePlayerPointerLeave}
                            data-player-id={player.id}
-                           className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
+                           className={`relative w-22 h-22 sm:w-24 sm:h-24 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-xl overflow-hidden ${
                             player.isDead 
-                              ? 'border-stone-800 bg-[#0a0a0a] grayscale opacity-70'
+                              ? 'border-stone-700 bg-stone-900/40 grayscale-[0.8] opacity-80'
                               : selectedPlayerId === player.id 
                                 ? 'ring-4 ring-amber-500/20 scale-110 z-20 bg-[#1a0f0a]' 
                                 : 'bg-[#0a0502]/80 hover:border-white/20'
@@ -1025,13 +1043,13 @@ export default function App() {
                           </div>
 
                           <div className="w-full bg-[#1a0f0a]/60 py-1 border-t border-white/5 text-center mt-auto">
-                            <span className={`text-[8px] sm:text-[10px] font-bold tracking-tight truncate px-1 block ${player.isDead ? 'text-white/60' : 'text-white/80'}`}>
+                            <span className={`text-[8px] sm:text-[10px] font-bold tracking-tight truncate px-1 block ${player.isDead ? 'text-white/90' : 'text-white/80'}`}>
                               {player.name}
                             </span>
                           </div>
 
                           {role && isGrimoireVisible && !privacyMode && (
-                           <div className={`absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-1 text-center pointer-events-none flex flex-col items-center justify-center min-h-[40%] ${player.isDead ? 'opacity-60' : ''}`}>
+                           <div className={`absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-full px-1 text-center pointer-events-none flex flex-col items-center justify-center min-h-[40%] ${player.isDead ? 'opacity-90' : ''}`}>
                               <div className={`text-[9px] sm:text-[12px] font-black uppercase tracking-tighter leading-[0.85] sm:leading-[0.9] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] ${typeColors[role.type].split(' ')[0]}`}>
                                 {formatRoleName(language === 'es' ? (role.nameEs || role.name) : role.name)}
                               </div>

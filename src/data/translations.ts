@@ -90,6 +90,7 @@ export const UI_TRANSLATIONS = {
     noneAbility: 'None',
     askWiki: 'Ask the Wiki about rules or roles...',
     howToHelp: 'I am the Grimoire Librarian. Ask me anything about Blood on the Clocktower rules or characters.',
+    roleAlreadyExists: 'A role with this name already exists.',
   },
   es: {
     grimoireManager: 'Pocket Grimoire',
@@ -179,5 +180,6 @@ export const UI_TRANSLATIONS = {
     noneAbility: 'Ninguna',
     askWiki: 'Pregunta a la Wiki sobre reglas o personajes...',
     howToHelp: 'Soy el Bibliotecario del Grimorio. Pregúntame cualquier cosa sobre las reglas o personajes de Blood on the Clocktower.',
+    roleAlreadyExists: 'Ya existe un rol con este nombre.',
   }
 };

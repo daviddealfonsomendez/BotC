@@ -1,7 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 
+const apiKey = process.env.MY_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+
 const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY as string 
+  apiKey: apiKey as string 
 });
 
 export async function askGrimoireAssistant(question: string, gameState: any, language: string) {
